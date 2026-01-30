@@ -3,13 +3,13 @@ const fs = require('fs');
 const path = require('path');
 
 const server = http.createServer((req, res) => {
-    // --- THE FIX: CORS HEADERS ---
-    // This tells the browser: "It is okay to accept content from other ports."
+    // fixing CORS HEADERS 
+    
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-    // Handle "Pre-flight" checks (Browsers sometimes check permissions before asking for data)
+    // this will handl Pre flight checks
     if (req.method === 'OPTIONS') {
         res.writeHead(204);
         res.end();
@@ -41,7 +41,7 @@ const server = http.createServer((req, res) => {
                 'Accept-Ranges': 'bytes',
                 'Content-Length': chunksize,
                 'Content-Type': 'audio/mpeg',
-                // Add CORS here too just in case
+                // added CORS here too just in case iykyk ;)
                 'Access-Control-Allow-Origin': '*',
             };
             
