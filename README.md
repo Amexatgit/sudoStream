@@ -1,9 +1,9 @@
 # Self-Hosted Global Streaming Server
 
 A distributed audio streaming architecture designed to replace commercial services like Spotify for personal use.
-Home server backend written in node.js running locally on rasberry pi 4 coupled with ssd having 1000+ my personal fav songs.
-connected to the frontend browser written in nextjs  HTTP/1.1 chucked requests(just like spotify --> no downloding of songs, only streaming chuncks in real time)
-which will allow me to access my any song any time any where in the world.
+- Home server backend written in node.js running locally on rasberry pi 4 coupled with ssd having 1000+ my personal fav songs.
+- connected to the frontend browser written in nextjs  HTTP/1.1 chucked requests(just like spotify --> no downloding of songs, only streaming chuncks in real time)
+- which will allow me to access my any song any time any where in the world.
 
 ## Project Overview
 This system mimics the core functionality of major streaming platforms by implementing:
