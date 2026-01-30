@@ -20,4 +20,4 @@ This system mimics the core functionality of major streaming platforms by implem
 - [x] Project Initialization
 - [x] Basic Server Setup
 - [ ] Streaming Logic Implementation
-- [ ] Database Integration
+- [ ] Database Integration.
