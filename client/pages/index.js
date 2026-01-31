@@ -6,6 +6,7 @@ export default function Home() {
       <h1 className="text-5xl font-bold mb-12 text-green-500 tracking-tighter">
          SudoStream
       </h1>
+      <h3> shipped by Amex </h3>
 
       {/* The Player Card */}
       <div className="bg-gray-900 p-8 rounded-2xl shadow-2xl border border-gray-800 w-96 text-center">
