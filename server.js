@@ -61,6 +61,6 @@ const server = http.createServer((req, res) => {
 });
 
 const PORT = 8000;
-server.listen(PORT, () => {
+server.listen(PORT,'0.0.0.0', () => {
     console.log(`⚡ SudoStream Audio Engine (CORS Enabled) running on http://localhost:${PORT}`);
 });

@@ -6,7 +6,7 @@ export default function Home() {
       <h1 className="text-5xl font-bold mb-12 text-green-500 tracking-tighter">
          SudoStream
       </h1>
-      <h3> shipped by Amex </h3>
+      <h3> Shipped by Amex </h3>
 
       {/* The Player Card */}
       <div className="bg-gray-900 p-8 rounded-2xl shadow-2xl border border-gray-800 w-96 text-center">
@@ -23,7 +23,7 @@ export default function Home() {
         {/* The Audio Player */}
         <audio controls className="w-full">
           {/* This points directly to your Backend running on Port 8000 */}
-          <source src="http://localhost:8000" type="audio/mpeg" />
+          <source src="http://192.168.1.37:8000" type="audio/mpeg" />
           Your browser does not support the audio element.
         </audio>
       </div>
