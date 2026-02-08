@@ -1,32 +1,39 @@
 import { useState, useEffect, useRef } from 'react';
 
-export default function Home() {
-  // 1. STATE: The memory of the app
-  const [songs, setSongs] = useState([]); 
-  const [currentSong, setCurrentSong] = useState(null); 
-  const [isPlaying, setIsPlaying] = useState(false);
+// --- HELPER: Formats seconds into MM:SS ---
+const formatTime = (seconds) => {
+  if (!seconds) return "0:00";
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s < 10 ? '0' : ''}${s}`;
+};
 
-  // ⚠️ IMPORTANT: CHECK YOUR IP ADDRESS! 
-  // Run 'hostname -I' in terminal if this doesn't work.
+export default function Home() {
+  // 1. STATE
+  const [songs, setSongs] = useState([]);
+  const [currentSong, setCurrentSong] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  
+  // NEW: Track time for the progress bar
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+
+  // ⚠️ CHANGE THIS TO YOUR LOCAL IP!
   const API_URL = "http://192.168.1.37:8000"; 
 
   const audioRef = useRef(null);
 
-  // 2. EFFECT: Run this when the app loads
+  // 2. FETCH SONGS
   useEffect(() => {
     fetch(`${API_URL}/api/songs`)
       .then(res => res.json())
-      .then(data => {
-        console.log("Songs fetched:", data);
-        setSongs(data);
-      })
-      .catch(err => console.error("Failed to fetch songs:", err));
+      .then(data => setSongs(data))
+      .catch(err => console.error("Failed to fetch:", err));
   }, []);
 
-  // 3. FUNCTION: Handle Play/Pause
+  // 3. PLAY/PAUSE LOGIC
   const playSong = (song) => {
     if (currentSong?._id === song._id) {
-      // Toggle Play/Pause for same song
       if (isPlaying) {
         audioRef.current.pause();
         setIsPlaying(false);
@@ -35,20 +42,35 @@ export default function Home() {
         setIsPlaying(true);
       }
     } else {
-      // Play NEW song
       setCurrentSong(song);
       setIsPlaying(true);
-      // Tiny delay to let React load the new source
-      setTimeout(() => audioRef.current.play(), 100);
+      // Wait for React to render the new src, then play
+      setTimeout(() => audioRef.current && audioRef.current.play(), 100);
     }
+  };
+
+  const playNext = () => {
+    const currentIndex = songs.findIndex(s => s._id === currentSong._id);
+    // If there is a next song, play it. Otherwise, loop to start (optional)
+    const nextSong = songs[currentIndex + 1] || songs[0]; 
+    playSong(nextSong);
+  };
+
+  // 4. NEW: Handle Seeking (Dragging the bar)
+  const handleSeek = (e) => {
+    const newTime = e.target.value;
+    audioRef.current.currentTime = newTime;
+    setCurrentTime(newTime);
   };
 
   return (
     <div style={styles.container}>
-      <h1 style={styles.title}>SudoStream 🐧</h1>
-      <p style={styles.subtitle}>Cloud Database Connected 🟢</p>
+      <div style={styles.header}>
+        <h1 style={styles.title}>SudoStream 🐧</h1>
+        <p style={{color: '#1DB954', fontSize: '14px'}}>Cloud Connected 🟢</p>
+      </div>
 
-      {/* THE PLAYLIST */}
+      {/* SONG LIST */}
       <div style={styles.list}>
         {songs.map((song) => (
           <div 
@@ -56,120 +78,167 @@ export default function Home() {
             onClick={() => playSong(song)}
             style={{
               ...styles.songItem,
-              backgroundColor: currentSong?._id === song._id ? '#1DB954' : '#333'
+              backgroundColor: currentSong?._id === song._id ? '#2a2a2a' : '#181818',
+              border: currentSong?._id === song._id ? '1px solid #1DB954' : 'none'
             }}
           >
-            {/* ALBUM ART (Small) */}
+            {/* Album Art */}
             <img 
-                src={song.image || "https://via.placeholder.com/50"} 
-                alt="art"
-                style={styles.listArt}
+              src={song.image || "https://picsum.photos/50"} 
+              style={styles.thumbnail} 
             />
-
+            
             <div style={styles.songInfo}>
-              <strong>{song.title}</strong>
-              <br />
-              <small style={{ color: '#ccc' }}>{song.artist}</small>
+              <strong style={{color: currentSong?._id === song._id ? '#1DB954' : '#fff'}}>
+                {song.title}
+              </strong>
+              <div style={styles.artist}>{song.artist}</div>
             </div>
             
-            <span style={{ fontSize: '1.2rem' }}>
+            <span style={{fontSize: '20px'}}>
               {currentSong?._id === song._id && isPlaying ? '⏸' : '▶'}
             </span>
           </div>
         ))}
       </div>
 
-      {/* THE MUSIC PLAYER (Bottom Bar) */}
+      {/* PLAYER BAR */}
       {currentSong && (
         <div style={styles.player}>
-          {/* ALBUM ART (Big) */}
-          <div style={styles.artContainer}>
-             <img 
-                src={currentSong.image || "https://via.placeholder.com/150"} 
-                style={styles.playerArt}
-             />
+          
+          {/* 1. Top Row: Art + Title */}
+          <div style={styles.playerInfo}>
+             <img src={currentSong.image} style={styles.playerArt} />
+             <div>
+               <div style={{fontWeight: 'bold'}}>{currentSong.title}</div>
+               <div style={{fontSize: '12px', color: '#ccc'}}>{currentSong.artist}</div>
+             </div>
           </div>
 
-          <h3 style={{ margin: '10px 0' }}>{currentSong.title}</h3>
-          <p style={{ color: '#aaa', marginTop: '-10px', marginBottom: '15px' }}>
-            {currentSong.artist}
-          </p>
-          
+          {/* 2. Middle Row: CONTROLS (New!) */}
+          <div style={styles.controls}>
+             {/* Previous Button */}
+             <button style={styles.btn} onClick={() => playSong(songs[songs.findIndex(s => s._id === currentSong._id) - 1] || songs[songs.length - 1])}>⏮</button>
+             
+             {/* Play/Pause Button */}
+             <button style={styles.playBtn} onClick={() => {
+                if(isPlaying) { audioRef.current.pause(); setIsPlaying(false); } 
+                else { audioRef.current.play(); setIsPlaying(true); }
+             }}>
+               {isPlaying ? '⏸' : '▶'}
+             </button>
+             
+             {/* Next Button */}
+             <button style={styles.btn} onClick={playNext}>⏭</button>
+          </div>
+
+          {/* 3. Bottom Row: Progress Bar */}
+          <div style={styles.progressBarContainer}>
+            <span style={styles.timeText}>{formatTime(currentTime)}</span>
+            <input 
+              type="range" 
+              min="0" 
+              max={duration || 0} 
+              value={currentTime} 
+              onChange={handleSeek}
+              style={styles.slider}
+            />
+            <span style={styles.timeText}>{formatTime(duration)}</span>
+          </div>
+
+          {/* HIDDEN AUDIO: Now with Autoplay! */}
           <audio 
             ref={audioRef}
-            controls 
-            // This is the SMART link that asks for the specific file
             src={`${API_URL}/music/${currentSong.filename}`} 
-            style={{ width: '100%', borderRadius: '30px' }}
+            onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)}
+            onLoadedMetadata={(e) => setDuration(e.target.duration)}
+            onEnded={playNext} 
+            autoPlay
           />
         </div>
       )}
-      
-      {/* Spacer to make sure the list isn't hidden behind the player */}
-      <div style={{ height: '300px' }}></div>
-    </div>
+    </div> // <--- THIS WAS MISSING!
   );
 }
 
-// --- STYLES (Dark Mode) ---
+// --- STYLES (CSS-in-JS) ---
 const styles = {
   container: {
     backgroundColor: '#121212',
     color: '#fff',
     minHeight: '100vh',
-    padding: '20px',
+    paddingBottom: '120px', // Space for player
     fontFamily: 'sans-serif',
-    paddingBottom: '20px'
   },
-  title: { textAlign: 'center', color: '#1DB954', fontSize: '2rem' },
-  subtitle: { textAlign: 'center', color: '#888', marginBottom: '30px' },
-  list: { maxWidth: '600px', margin: '0 auto' },
+  header: { padding: '20px', textAlign: 'center' },
+  title: { margin: 0, color: '#fff' },
+  list: { padding: '10px' },
   songItem: {
-    padding: '10px',
-    marginBottom: '12px',
-    borderRadius: '12px',
-    cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
-    transition: '0.2s',
-    boxShadow: '0 4px 6px rgba(0,0,0,0.3)'
-  },
-  listArt: {
-    width: '50px',
-    height: '50px',
+    padding: '10px',
+    marginBottom: '8px',
     borderRadius: '8px',
-    marginRight: '15px',
-    objectFit: 'cover'
+    cursor: 'pointer',
+    transition: '0.2s',
   },
+  thumbnail: { width: '50px', height: '50px', borderRadius: '4px', marginRight: '15px', objectFit: 'cover' },
   songInfo: { flexGrow: 1 },
+  artist: { fontSize: '12px', color: '#b3b3b3' },
   
-  // Player Styles
+  // PLAYER STYLES
   player: {
     position: 'fixed',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(40, 40, 40, 0.95)', // Slightly transparent
-    backdropFilter: 'blur(10px)', // Blur effect behind player
-    padding: '20px',
-    borderTop: '1px solid #444',
-    textAlign: 'center',
-    borderTopLeftRadius: '20px',
-    borderTopRightRadius: '20px',
-    boxShadow: '0 -5px 20px rgba(0,0,0,0.5)'
+    backgroundColor: '#282828',
+    padding: '15px',
+    borderTop: '1px solid #333',
+    boxShadow: '0 -5px 20px rgba(0,0,0,0.5)',
   },
-  artContainer: {
+  playerInfo: { display: 'flex', alignItems: 'center', marginBottom: '10px' },
+  playerArt: { width: '40px', height: '40px', borderRadius: '4px', marginRight: '10px' },
+  
+  // CONTROLS STYLES
+  controls: {
     display: 'flex',
     justifyContent: 'center',
-    marginTop: '-50px', // Pull the image up so it "pops out"
+    alignItems: 'center',
+    gap: '20px',
     marginBottom: '10px'
   },
-  playerArt: {
-    width: '120px',
-    height: '120px',
-    borderRadius: '15px',
-    boxShadow: '0 10px 20px rgba(0,0,0,0.5)',
-    objectFit: 'cover',
-    border: '4px solid #121212'
-  }
+  btn: {
+    background: 'none',
+    border: 'none',
+    color: '#fff',
+    fontSize: '24px',
+    cursor: 'pointer'
+  },
+  playBtn: {
+    width: '40px',
+    height: '40px',
+    borderRadius: '50%',
+    border: 'none',
+    backgroundColor: '#fff',
+    color: '#000',
+    fontSize: '20px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer'
+  },
+  
+  // PROGRESS BAR STYLES
+  progressBarContainer: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+  },
+  slider: {
+    flexGrow: 1,
+    accentColor: '#1DB954', // Spotify Green
+    cursor: 'pointer',
+  },
+  timeText: { fontSize: '12px', color: '#b3b3b3', minWidth: '35px' }
 };

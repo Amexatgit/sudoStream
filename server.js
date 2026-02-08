@@ -1,21 +1,25 @@
 require('dotenv').config();
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
+const express = require('express'); // NEW: The Framework
 const mongoose = require('mongoose');
+const multer = require('multer'); // NEW: File Uploader
+const cors = require('cors');
+const path = require('path');
+const fs = require('fs');
 
-// --- 1. Database Connection ---
-const connectDB = async () => {
-    try {
-        await mongoose.connect(process.env.MONGO_URI);
-        console.log('✅ MongoDB Connected Successfully');
-    } catch (err) {
-        console.error('❌ MongoDB Connection Error:', err.message);
-    }
-};
-connectDB();
+const app = express();
+const PORT = process.env.PORT || 8000;
 
-// --- 2. Define Schema ---
+// 1. Middleware (Security & parsing)
+app.use(cors());
+app.use(express.json());
+app.use('/public', express.static('public'));
+
+// 2. Database Connection
+mongoose.connect(process.env.MONGO_URI)
+    .then(() => console.log('✅ MongoDB Connected (Express Mode)'))
+    .catch(err => console.error('❌ DB Error:', err));
+
+// 3. Schema
 const SongSchema = new mongoose.Schema({
     title: String,
     artist: String,
@@ -25,87 +29,61 @@ const SongSchema = new mongoose.Schema({
 });
 const Song = mongoose.model('Song', SongSchema);
 
-// --- 3. The Server ---
-const server = http.createServer(async (req, res) => {
-    // CORS (Allow Frontend)
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range'); // Added Range
-
-    if (req.method === 'OPTIONS') {
-        res.writeHead(204);
-        res.end();
-        return;
+// 4. STORAGE ENGINE (For Uploads)
+// This tells Multer where to save the MP3s
+const storage = multer.diskStorage({
+    destination: './music', // Save to music folder
+    filename: function (req, file, cb) {
+        // Keep original name but remove spaces to avoid bugs
+        const cleanName = file.originalname.replace(/\s+/g, '_');
+        cb(null, cleanName);
     }
+});
+const upload = multer({ storage: storage });
 
-    // [A] API Endpoint: List Songs
-    if (req.url === '/api/songs' && req.method === 'GET') {
-        try {
-            const songs = await Song.find();
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(songs));
-            console.log("📤 Sent Song List to Client");
-        } catch (error) {
-            res.writeHead(500);
-            res.end(JSON.stringify({ error: 'DB Error' }));
-        }
-        return;
+// --- ROUTES ---
+
+// [A] GET All Songs
+app.get('/api/songs', async (req, res) => {
+    try {
+        const songs = await Song.find().sort({ addedAt: -1 }); // Newest first
+        res.json(songs);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
-
-    // [B] Music Streaming Endpoint (The Smart Player)
-    if (req.url.startsWith('/music/')) {
-        // 1. Extract filename (e.g., "test.mp3")
-        const filename = req.url.replace('/music/', '');
-        const filePath = path.join(__dirname, 'music', filename);
-        
-        console.log(`🎵 Request for: ${filename}`); // DEBUG LOG
-
-        // 2. Check if file exists
-        fs.stat(filePath, (err, stats) => {
-            if (err) {
-                console.error(`❌ File MISSING: ${filePath}`);
-                res.writeHead(404, { 'Content-Type': 'text/plain' });
-                res.end('File not found');
-                return;
-            }
-
-            // 3. Stream logic
-            const range = req.headers.range;
-            const fileSize = stats.size;
-
-            if (range) {
-                const parts = range.replace(/bytes=/, "").split("-");
-                const start = parseInt(parts[0], 10);
-                const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-                const chunksize = (end - start) + 1;
-                const file = fs.createReadStream(filePath, { start, end });
-                
-                res.writeHead(206, {
-                    'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-                    'Accept-Ranges': 'bytes',
-                    'Content-Length': chunksize,
-                    'Content-Type': 'audio/mpeg',
-                    'Access-Control-Allow-Origin': '*',
-                });
-                file.pipe(res);
-            } else {
-                res.writeHead(200, {
-                    'Content-Length': fileSize,
-                    'Content-Type': 'audio/mpeg',
-                    'Access-Control-Allow-Origin': '*',
-                });
-                fs.createReadStream(filePath).pipe(res);
-            }
-        });
-        return;
-    }
-
-    // [C] 404 for anything else
-    res.writeHead(404);
-    res.end('Not Found');
 });
 
-const PORT = process.env.PORT || 8000;
-server.listen(PORT, '0.0.0.0', () => {
-    console.log(`⚡ Server running on Port ${PORT}`);
+// [B] STREAM Music (The Magic One-Liner) 🪄
+app.get('/music/:filename', (req, res) => {
+    const filePath = path.join(__dirname, 'music', req.params.filename);
+    
+    // Express handles the Stream/Range logic automatically!
+    res.sendFile(filePath); 
+});
+
+// [C] UPLOAD Endpoint 📤
+app.post('/api/upload', upload.single('songFile'), async (req, res) => {
+    // 1. Multer has already saved the file to /music by now.
+    // 2. We just need to save the info to MongoDB.
+    
+    try {
+        const newSong = new Song({
+            title: req.body.title || req.file.originalname, // Use filename if no title
+            artist: req.body.artist || "Unknown Artist",
+            filename: req.file.filename,
+            image: "http://192.168.1.37:8000/public/logo.png"
+        });
+
+        await newSong.save();
+        console.log(`✅ Uploaded: ${newSong.title}`);
+        res.json({ message: "Upload Successful!", song: newSong });
+
+    } catch (err) {
+        res.status(500).json({ error: "Upload failed" });
+    }
+});
+
+// Start Server
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Express Server running on Port ${PORT}`);
 });

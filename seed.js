@@ -18,8 +18,8 @@ const Song = mongoose.model('Song', new mongoose.Schema({
 // 3. The Data to Insert
 const seedSongs = [
     {
-    title: "System Test",
-    artist: "Amex Audio",
+    title: "Be my Baby",
+    artist: "Priated by AmeX",
     filename: "song.mp3",
     // This link gives a random valid photo every time
     image: "https://picsum.photos/200" 
