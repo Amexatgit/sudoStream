@@ -1,20 +1,29 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 
 export default function Upload() {
   const router = useRouter();
-  const [file, setFile] = useState(null);
+  const [songFile, setSongFile] = useState(null);
+  const [imageFile, setImageFile] = useState(null);
   const [title, setTitle] = useState('');
   const [artist, setArtist] = useState('');
-  const [status, setStatus] = useState(''); // 'uploading', 'success', 'error'
+  const [isPrivate, setIsPrivate] = useState(false); // NEW: Privacy Toggle
+  const [status, setStatus] = useState('');
 
-  // ⚠️ CHANGE THIS TO YOUR LAPTOP IP!
-  const API_URL = "http://192.168.1.37:8000"; 
+  // ⚠️ Ensure this matches your backend
+  const API_URL = "http://localhost:8000"; 
 
-  const handleFileChange = (e) => {
+  // Security Check: If not logged in, kick them out!
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      router.push('/login');
+    }
+  }, []);
+
+  const handleSongChange = (e) => {
     const selected = e.target.files[0];
-    setFile(selected);
-    // Auto-fill title from filename (removes .mp3)
+    setSongFile(selected);
     if (selected && !title) {
       setTitle(selected.name.replace(/\.[^/.]+$/, ""));
     }
@@ -22,29 +31,36 @@ export default function Upload() {
 
   const handleUpload = async (e) => {
     e.preventDefault();
-    if (!file) return;
+    if (!songFile) return;
 
     setStatus('uploading');
+    const token = localStorage.getItem('token'); // Get the Key
 
     const formData = new FormData();
-    formData.append('songFile', file);
+    formData.append('songFile', songFile);
+    if (imageFile) formData.append('imageFile', imageFile);
     formData.append('title', title);
     formData.append('artist', artist || 'Unknown Artist');
+    formData.append('isPrivate', isPrivate); // Send the privacy flag
 
     try {
       const res = await fetch(`${API_URL}/api/upload`, {
         method: 'POST',
+        headers: {
+            'auth-token': token // 🔑 SHOW THE BADGE!
+        },
         body: formData,
       });
 
       if (res.ok) {
         setStatus('success');
-        // Reset form after 2 seconds
         setTimeout(() => {
           setStatus('');
-          setFile(null);
+          setSongFile(null);
+          setImageFile(null);
           setTitle('');
           setArtist('');
+          setIsPrivate(false);
         }, 2000);
       } else {
         setStatus('error');
@@ -58,22 +74,30 @@ export default function Upload() {
   return (
     <div style={styles.container}>
       <div style={styles.card}>
-        <h1 style={styles.title}>📤 Upload Station</h1>
+        <h1 style={styles.title}>Upload Station</h1>
         
         <form onSubmit={handleUpload} style={styles.form}>
           
-          {/* File Input */}
           <div style={styles.inputGroup}>
-            <label style={styles.label}>Choose MP3 File</label>
+            <label style={styles.label}>Select MP3 File</label>
             <input 
               type="file" 
               accept="audio/mp3, audio/mpeg" 
-              onChange={handleFileChange}
+              onChange={handleSongChange}
               style={styles.fileInput}
             />
           </div>
 
-          {/* Metadata Inputs */}
+          <div style={styles.inputGroup}>
+            <label style={styles.label}>Select Cover Art</label>
+            <input 
+              type="file" 
+              accept="image/*" 
+              onChange={(e) => setImageFile(e.target.files[0])}
+              style={styles.fileInput}
+            />
+          </div>
+
           <input 
             type="text" 
             placeholder="Song Title" 
@@ -90,10 +114,23 @@ export default function Upload() {
             style={styles.input}
           />
 
-          {/* Upload Button */}
+          {/* PRIVACY CHECKBOX */}
+          <div style={styles.checkboxContainer}>
+            <input 
+                type="checkbox" 
+                id="privateCheck"
+                checked={isPrivate}
+                onChange={(e) => setIsPrivate(e.target.checked)}
+                style={{accentColor: '#1DB954', transform: 'scale(1.2)'}}
+            />
+            <label htmlFor="privateCheck" style={{color: '#ccc', fontSize: '14px'}}>
+                Mark as Private (Admin Only)
+            </label>
+          </div>
+
           <button 
             type="submit" 
-            disabled={!file || status === 'uploading'}
+            disabled={!songFile || status === 'uploading'}
             style={{
               ...styles.button,
               backgroundColor: status === 'uploading' ? '#555' : '#1DB954',
@@ -103,13 +140,12 @@ export default function Upload() {
             {status === 'uploading' ? 'Uploading...' : 'Upload Song'}
           </button>
 
-          {/* Status Messages */}
-          {status === 'success' && <p style={{color: '#1DB954', textAlign: 'center'}}>✅ Upload Complete!</p>}
-          {status === 'error' && <p style={{color: 'red', textAlign: 'center'}}>❌ Upload Failed</p>}
+          {status === 'success' && <p style={{color: '#1DB954', textAlign: 'center'}}>Upload Complete</p>}
+          {status === 'error' && <p style={{color: 'red', textAlign: 'center'}}>Upload Failed</p>}
         </form>
 
         <button onClick={() => router.push('/')} style={styles.backLink}>
-          ← Back to Player
+          Back to Player
         </button>
       </div>
     </div>
@@ -134,11 +170,11 @@ const styles = {
     maxWidth: '400px',
     boxShadow: '0 4px 20px rgba(0,0,0,0.5)'
   },
-  title: { textAlign: 'center', marginBottom: '20px' },
+  title: { textAlign: 'center', marginBottom: '20px', fontSize: '22px' },
   form: { display: 'flex', flexDirection: 'column', gap: '15px' },
   inputGroup: { display: 'flex', flexDirection: 'column', gap: '5px' },
-  label: { fontSize: '14px', color: '#b3b3b3' },
-  fileInput: { color: '#ccc', fontSize: '14px' },
+  label: { fontSize: '13px', color: '#1DB954', fontWeight: 'bold', textTransform: 'uppercase' },
+  fileInput: { color: '#ccc', fontSize: '13px' },
   input: {
     padding: '12px',
     borderRadius: '4px',
@@ -146,6 +182,12 @@ const styles = {
     backgroundColor: '#3e3e3e',
     color: 'white',
     fontSize: '16px'
+  },
+  checkboxContainer: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    padding: '5px 0'
   },
   button: {
     padding: '14px',
@@ -162,6 +204,7 @@ const styles = {
     border: 'none',
     color: '#b3b3b3',
     cursor: 'pointer',
-    width: '100%'
+    width: '100%',
+    textDecoration: 'underline'
   }
 };
