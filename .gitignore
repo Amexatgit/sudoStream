@@ -1,0 +1,11 @@
+
+# Dependency directories
+node_modules/
+client/node_modules/
+
+# Secrets
+.env
+
+# Logs
+npm-debug.log*
+*.log
