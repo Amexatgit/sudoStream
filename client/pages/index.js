@@ -37,7 +37,7 @@ export default function Home() {
   const [bgOpacity, setBgOpacity] = useState(0);
   const [bgImage, setBgImage] = useState(null);
 
-  const API_URL = "http://localhost:8000"; 
+  const API_URL = "http://192.168.1.37:8000";
   const audioRef = useRef(null);
 
   // 1. FETCH SONGS

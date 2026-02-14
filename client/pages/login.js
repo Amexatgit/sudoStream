@@ -7,8 +7,8 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  // ⚠️ CHANGE THIS TO YOUR LOCAL IP!
-  const API_URL = "http://localhost:8000"; 
+  
+  const API_URL = "http://192.168.1.37:8000";
 
   const handleLogin = async (e) => {
     e.preventDefault();

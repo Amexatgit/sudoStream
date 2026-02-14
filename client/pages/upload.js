@@ -10,8 +10,8 @@ export default function Upload() {
   const [isPrivate, setIsPrivate] = useState(false); // NEW: Privacy Toggle
   const [status, setStatus] = useState('');
 
-  // ⚠️ Ensure this matches your backend
-  const API_URL = "http://localhost:8000"; 
+  
+  const API_URL = "http://192.168.1.37:8000";
 
   // Security Check: If not logged in, kick them out!
   useEffect(() => {
