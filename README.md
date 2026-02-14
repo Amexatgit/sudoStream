@@ -23,7 +23,7 @@ This system mimics the core functionality of major streaming platforms by implem
 - [x] Project Initialization
 - [x] Basic Server Setup
 - [x] Streaming Logic Implementation
-- [ ] Database Integration.
+- [x] Database Integration.
 - [ ] Cloudfare tunneling.
 - [ ] Domain forwarding.
 - [ ] Deploying on main network.
