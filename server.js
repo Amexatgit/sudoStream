@@ -5,17 +5,16 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const jwt = require('jsonwebtoken');      // NEW: For Tokens
-const bcrypt = require('bcryptjs');       // NEW: For Passwords
+const jwt = require('jsonwebtoken');      
+const bcrypt = require('bcryptjs');      
 
-// Import Models (Make sure these files exist in /models folder!)
 const Song = require('./models/Song');
 const User = require('./models/User');
 
 const app = express();
 const PORT = 8000;
 
-// 🔐 THE SECRET KEY (In a real job, hide this in a .env file)
+
 const JWT_SECRET = process.env.JWT_SECRET;
 
 // Middleware
@@ -27,14 +26,14 @@ app.use('/music', express.static('music'));
 
 //MONGO URL
 
-const MONGO_URI = process.env.MONGO_URI; // Read the secret
+const MONGO_URI = process.env.MONGO_URI; 
 
 mongoose.connect(MONGO_URI)
     .then(() => console.log("✅ MongoDB Connected"))
     .catch(err => console.log("❌ DB Error:", err));
 
-// --- 👮‍♂️ THE BOUNCER (Middleware) ---
-// This function checks if a request has a valid VIP Badge (Token)
+// ---  THE BOUNCER mheuhahahahhahahahahaha (Middleware) ---
+
 const auth = (req, res, next) => {
     const token = req.header('auth-token');
     if (!token) return res.status(401).json({ error: "Access Denied. Who are you?" });
@@ -42,13 +41,13 @@ const auth = (req, res, next) => {
     try {
         const verified = jwt.verify(token, JWT_SECRET);
         req.user = verified;
-        next(); // Pass! Go to the next step.
+        next(); 
     } catch (err) {
         res.status(400).json({ error: "Invalid Token. Nice try." });
     }
 };
 
-// --- STORAGE ENGINE ---
+// --- Freaking STORAGE ENGINE LAMO Mritiyu---
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
         if (file.mimetype.startsWith('image/')) {
@@ -70,7 +69,7 @@ const upload = multer({ storage: storage }).fields([
 
 // ================= ROUTES =================
 
-// 1. 🔐 LOGIN ROUTE (Get your Badge)
+// 1. added LOGIN ROUTE 
 app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
     
@@ -87,7 +86,7 @@ app.post('/api/login', async (req, res) => {
     res.json({ token: token, username: user.username });
 });
 
-// 2. 🎵 GET SONGS (Smart Logic)
+// 2.  Song getter
 app.get('/api/songs', async (req, res) => {
     // Check if the user sent a token in the header
     const token = req.header('auth-token');
@@ -119,13 +118,13 @@ app.get('/api/songs', async (req, res) => {
 });
 
 // 3. 📤 UPLOAD (Protected by 'auth' middleware)
-// Notice we added 'auth' before 'upload'. Only logged-in users can upload!
+
 app.post('/api/upload', auth, upload, async (req, res) => {
     try {
         const songFile = req.files['songFile'][0];
         const imageFile = req.files['imageFile'] ? req.files['imageFile'][0] : null;
 
-        // ⚠️ CHANGE THIS TO YOUR LOCAL IP!
+        
         const BASE_URL = "http://192.168.1.37:8000"; 
 
         const newSong = new Song({
@@ -133,7 +132,7 @@ app.post('/api/upload', auth, upload, async (req, res) => {
             artist: req.body.artist || "Unknown Artist",
             filename: songFile.filename,
             image: imageFile ? `${BASE_URL}/public/${imageFile.filename}` : `${BASE_URL}/public/logo.png`,
-            isPrivate: req.body.isPrivate === 'true' // Check the checkbox
+            isPrivate: req.body.isPrivate === 'true' 
         });
 
         await newSong.save();
