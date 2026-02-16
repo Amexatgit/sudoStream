@@ -10,7 +10,7 @@ export default function Login() {
   
   const API_URL = "http://192.168.1.37:8000";
 
-  const handleLogin = async (e) => {
+ const handleLogin = async (e) => {
     e.preventDefault();
     try {
       const res = await fetch(`${API_URL}/api/login`, {
@@ -22,10 +22,17 @@ export default function Login() {
       const data = await res.json();
 
       if (res.ok) {
-        // 🎉 SUCCESS! Save the token to browser memory
+        // 🎉 SUCCESS! Save Token AND Role
         localStorage.setItem('token', data.token);
         localStorage.setItem('username', data.username);
-        router.push('/upload'); // Redirect to Upload Page
+        localStorage.setItem('role', data.role); // <--- NEW!
+
+        // Redirect based on role
+        if (data.role === 'admin') {
+            router.push('/upload'); // Admin goes to work
+        } else {
+            router.push('/'); // Users go to listen
+        }
       } else {
         setError(data.error || 'Login Failed');
       }

@@ -13,11 +13,16 @@ export default function Upload() {
   
   const API_URL = "http://192.168.1.37:8000";
 
-  // Security Check: If not logged in, kick them out!
+  // Security Check: If not Admin, kick them out!
   useEffect(() => {
     const token = localStorage.getItem('token');
+    const role = localStorage.getItem('role');
+
     if (!token) {
-      router.push('/login');
+      router.push('/login'); // Not logged in? Go to login.
+    } else if (role !== 'admin') {
+      router.push('/'); // Logged in but not Admin? Go Home.
+      alert("Only the Piracy King Amex can upload! 🏴‍☠️");
     }
   }, []);
 
@@ -145,7 +150,7 @@ export default function Upload() {
         </form>
 
         <button onClick={() => router.push('/')} style={styles.backLink}>
-          Back to Player
+          Click here for copyright songs
         </button>
       </div>
     </div>

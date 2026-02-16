@@ -69,7 +69,7 @@ const upload = multer({ storage: storage }).fields([
 
 // ================= ROUTES =================
 
-// 1. added LOGIN ROUTE 
+// 1. 🔐 LOGIN ROUTE (Updated for Roles)
 app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
     
@@ -81,9 +81,13 @@ app.post('/api/login', async (req, res) => {
     const validPass = await bcrypt.compare(password, user.password);
     if (!validPass) return res.status(400).json({ error: "Wrong password" });
 
-    // Create and assign a token
-    const token = jwt.sign({ _id: user._id }, JWT_SECRET);
-    res.json({ token: token, username: user.username });
+    // Create Token with Role! 🏷️
+    // If the username is EXACTLY your admin name, give them 'admin' role
+    // Otherwise, give them 'user' role.
+    const role = user.username === 'amex'? 'admin' : 'user'; 
+
+    const token = jwt.sign({ _id: user._id, role: role }, JWT_SECRET);
+    res.json({ token: token, username: user.username, role: role });
 });
 
 // 2.  Song getter
