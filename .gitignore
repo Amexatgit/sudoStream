@@ -11,7 +11,7 @@ npm-debug.log*
 *.log
 
 
-backend/music/
-backend/covers/
+music/
+covers/
 SudoStream_Downloads/
 *.mp3
