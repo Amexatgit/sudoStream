@@ -23,7 +23,7 @@ app.use(express.json());
 // Serve static files (Images, CSS, etc.)
 app.use('/public', express.static('public'));
 app.use('/music', express.static('music'));
-
+app.use('/covers', express.static(path.join(__dirname, 'covers')));
 //MONGO URL
 
 const MONGO_URI = process.env.MONGO_URI; 
@@ -100,7 +100,7 @@ app.get('/api/songs', async (req, res) => {
     if (token) {
         try {
             jwt.verify(token, JWT_SECRET);
-            isVIP = true; // They are the King! 👑
+            isVIP = true; // We are the Piracy King! LoL
         } catch(e) {
             isVIP = false;
         }
@@ -118,6 +118,23 @@ app.get('/api/songs', async (req, res) => {
         res.json(songs);
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+// 🔄 TOGGLE SONG PRIVACY (Admin Switch)
+app.put('/api/songs/:id/toggle-privacy', async (req, res) => {
+    try {
+        // Find the song by its ID
+        const song = await Song.findById(req.params.id);
+        if (!song) return res.status(404).json({ error: "Song not found" });
+
+        // Flip the switch (If true, make false. If false, make true)
+        song.isPrivate = !song.isPrivate; 
+        await song.save();
+
+        res.json(song); // Send the updated song back to the frontend
+    } catch (err) {
+        console.error("Toggle error:", err);
+        res.status(500).json({ error: "Server error while toggling privacy" });
     }
 });
 

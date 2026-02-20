@@ -44,7 +44,7 @@ export default function Login() {
   return (
     <div style={styles.container}>
       <div style={styles.card}>
-        <h1 style={styles.title}>🔐 Admin Login</h1>
+        <h1 style={styles.title}>🔐 Login </h1>
         
         <form onSubmit={handleLogin} style={styles.form}>
           <input 
@@ -62,7 +62,7 @@ export default function Login() {
             style={styles.input}
           />
           
-          <button type="submit" style={styles.button}>Enter SudoStream</button>
+          <button type="submit" style={styles.button}>Enter into the Copyright Collection</button>
 
           {error && <p style={styles.error}>{error}</p>}
         </form>

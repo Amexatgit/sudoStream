@@ -71,7 +71,25 @@ export default function Home() {
     localStorage.removeItem('role');
     window.location.reload(); 
   };
-
+const togglePrivacy = async (song, e) => {
+    e.stopPropagation(); // 🛑 Prevents the song from playing when you just want to click the button
+    
+    const token = localStorage.getItem('token');
+    try {
+        const res = await fetch(`${API_URL}/api/songs/${song._id}/toggle-privacy`, {
+            method: 'PUT',
+            headers: { 'auth-token': token }
+        });
+        
+        if (res.ok) {
+            const updatedSong = await res.json();
+            // Update the screen instantly without refreshing the page
+            setSongs(songs.map(s => s._id === song._id ? updatedSong : s));
+        }
+    } catch (err) {
+        console.error("Failed to toggle privacy:", err);
+    }
+  };
   const playSong = (song) => {
     if (currentSong?._id === song._id) {
       if (isPlaying) {
@@ -122,10 +140,26 @@ export default function Home() {
         </strong>
         <div style={styles.artist}>
           {song.artist} 
-          {song.isPrivate && <span style={{marginLeft: '8px', display: 'inline-flex', alignItems: 'center'}} title="Private Song"><LockIcon size={12} /></span>}
+          {song.isPrivate && <span style={{marginLeft: '8px', display: 'inline-flex', alignItems: 'center'}} title="Private Song"></span>}
         </div>
       </div>
-      <span style={{display: 'flex', alignItems: 'center'}}>
+      <span style={{display: 'flex', alignItems: 'center', gap: '15px'}}>
+        
+        {/* 👑 ADMIN ONLY: Toggle Privacy Button */}
+        {isAdmin && (
+            <button 
+                onClick={(e) => togglePrivacy(song, e)}
+                style={{
+                    padding: '4px 10px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer',
+                    backgroundColor: song.isPrivate ? '#1DB954' : '#ff4d4d', // Green to Make Public, Red to Hide
+                    color: '#fff', border: 'none', borderRadius: '12px', textTransform: 'uppercase'
+                }}
+            >
+                {song.isPrivate ? 'Make Public 🌍' : 'Hide in Vault 🏴‍☠️'}
+            </button>
+        )}
+
+        {/* Play/Pause Icon */}
         {currentSong?._id === song._id && isPlaying ? <PauseIcon color="#1DB954" size={20} /> : <PlayIcon color="#fff" size={20} />}
       </span>
     </div>
@@ -138,7 +172,7 @@ export default function Home() {
       {/* BACKGROUND */}
       <div style={{
         position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
-        backgroundImage: bgImage ? `linear-gradient(rgba(0,0,0,0.85), #121212), url(${bgImage})` : 'none',
+        backgroundImage: bgImage ? `linear-gradient(rgba(0,0,0,0.85), #121212), url('${bgImage}')` : 'none',
         backgroundSize: 'cover', backgroundPosition: 'center',
         opacity: bgOpacity, transition: 'opacity 1s ease-in-out', zIndex: 0
       }}></div>
