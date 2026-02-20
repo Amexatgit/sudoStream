@@ -9,3 +9,9 @@ client/node_modules/
 # Logs
 npm-debug.log*
 *.log
+
+
+backend/music/
+backend/covers/
+SudoStream_Downloads/
+*.mp3
