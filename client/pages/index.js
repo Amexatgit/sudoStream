@@ -64,12 +64,14 @@ export default function Home() {
       return () => clearTimeout(timer);
     }
   }, [currentSong]);
-
-  const handleLogout = () => {
+const handleLogout = () => {
+    // 1. Wipe the credentials
     localStorage.removeItem('token');
     localStorage.removeItem('username');
     localStorage.removeItem('role');
-    window.location.reload(); 
+    
+    // 2. The Clean Exit (Forces a full browser navigation to the login screen)
+    window.location.href = '/login'; 
   };
 const togglePrivacy = async (song, e) => {
     e.stopPropagation(); // 🛑 Prevents the song from playing when you just want to click the button
@@ -189,7 +191,7 @@ const togglePrivacy = async (song, e) => {
               {isLoggedIn ? (
                   <>
                       {isAdmin && <span style={{color: '#1DB954', fontWeight: 'bold', fontSize: '14px', display: 'flex', alignItems: 'center'}}>Admin Mode</span>}
-                      {!isAdmin && <span style={{color: '#bbb', fontSize: '14px', display: 'flex', alignItems: 'center'}}>User Mode</span>}
+                      {!isAdmin && <span style={{color: '#bbb', fontSize: '14px', display: 'flex', alignItems: 'center'}}>Premium Access</span>}
                       
                       {/* Only Admin sees Upload */}
                       {isAdmin && <Link href="/upload"><button style={styles.navBtn}>Upload</button></Link>}
@@ -197,8 +199,23 @@ const togglePrivacy = async (song, e) => {
                       <button onClick={handleLogout} style={styles.navBtn}>Logout</button>
                   </>
               ) : (
-                  // LOGGED OUT NAV
-                  <Link href="/login"><button style={styles.navBtn}>Login</button></Link>
+                  // 🎟️ LOGGED OUT NAV (Updated with Invite Button)
+                  <>
+                      <Link href="/signup">
+                          <button style={{
+                              padding: '5px 10px',
+                              backgroundColor: 'transparent',
+                              border: '1px solid #1DB954',
+                              color: '#1DB954',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              fontSize: '14px'
+                          }}>
+                              Invite Code
+                          </button>
+                      </Link>
+                      <Link href="/login"><button style={styles.navBtn}>Free Login</button></Link>
+                  </>
               )}
           </div>
         </div>
@@ -225,7 +242,7 @@ const togglePrivacy = async (song, e) => {
              <div>
                <h2 style={styles.sectionTitle}>Public Library</h2>
                <p style={{color: '#b3b3b3', fontSize: '14px', lineHeight: '1.6'}}>
-                    This section contains CopyRight free songs only. You need to login to access copyrighted songs.
+                    This section contains Non copyright songs only. You need to login to access copyright songs, Create personalized Playlists, Stream Endless premium music...... and many more.
                 </p>
                {publicSongs.length > 0 ? publicSongs.map(renderSongRow) : <p style={{textAlign: 'center', color: '#555'}}>No public songs found.</p>}
              </div>

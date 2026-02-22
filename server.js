@@ -1,4 +1,9 @@
+
 require('dotenv').config(); // Load the .env file
+
+const crypto = require('crypto');
+const Invite = require('./models/Invite'); // Adjust path if needed
+
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -70,24 +75,90 @@ const upload = multer({ storage: storage }).fields([
 // ================= ROUTES =================
 
 // 1. 🔐 LOGIN ROUTE (Updated for Roles)
+
 app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
-    
-    // Check if user exists
-    const user = await User.findOne({ username });
-    if (!user) return res.status(400).json({ error: "User not found" });
 
-    // Check password
-    const validPass = await bcrypt.compare(password, user.password);
-    if (!validPass) return res.status(400).json({ error: "Wrong password" });
+    // 🧨 1. THE TRAPDOOR (5-Minute Guest Pass)
+    // If they use the public guest credentials...
+  
+if (username?.trim().toLowerCase() === 'FreeTrail' && password?.trim() === 'justcheckingout')  {
+        
+        // Issue a token that self-destructs in 5 minutes
+        const token = jwt.sign(
+            { _id: 'guest_id', role: 'guest' }, // Payload
+            process.env.JWT_SECRET,             // Secret Key
+            { expiresIn: '7m' }                 // ⏳ EXPIRATION TIMER
+        );
+        
+        return res.json({ 
+            message: "Welcome to the Premium Copyright Songs. You have 7 minutes free Trial.", 
+            token: token, 
+            role: 'guest', 
+            username: 'Guest User' 
+        });
+    }
 
-    // Create Token with Role! 🏷️
-    // If the username is EXACTLY your admin name, give them 'admin' role
-    // Otherwise, give them 'user' role.
-    const role = user.username === 'amex'? 'admin' : 'user'; 
+    // 👑 2. STANDARD LOGIN (Database Check)
+    try {
+        const user = await User.findOne({ username });
+        if (!user) return res.status(400).json({ error: "User not found" });
 
-    const token = jwt.sign({ _id: user._id, role: role }, JWT_SECRET);
-    res.json({ token: token, username: user.username, role: role });
+        const validPass = await bcrypt.compare(password, user.password);
+        if (!validPass) return res.status(400).json({ error: "Wrong password" });
+
+        // Admin gets 'admin' role, everyone else gets 'user'
+        const role = user.username === 'amex' ? 'admin' : 'user';
+
+        // Standard tokens last 7 days
+        const token = jwt.sign(
+            { _id: user._id, role: role }, 
+            process.env.JWT_SECRET, 
+            { expiresIn: '7d' } 
+        );
+
+        res.json({ token, username: user.username, role: role });
+    } catch (err) {
+        res.status(500).json({ error: "Server error" });
+    }
+});
+// 📝 SIGNUP ROUTE (The VIP Entrance)
+app.post('/api/signup', async (req, res) => {
+    const { username, password, inviteCode } = req.body;
+
+    try {
+        // 1. Verify the Invite Code exists
+        const validInvite = await Invite.findOne({ code: inviteCode });
+        if (!validInvite) {
+            return res.status(400).json({ error: "Invalid or expired invite code." });
+        }
+
+        // 2. Check if the username is already taken
+        const existingUser = await User.findOne({ username });
+        if (existingUser) {
+            return res.status(400).json({ error: "Username is already taken." });
+        }
+
+        // 3. Hash the password for security
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+
+        // 4. Create the new permanent user
+        const newUser = new User({
+            username: username,
+            password: hashedPassword
+        });
+        await newUser.save();
+
+        // 5. 🔥 BURN THE CODE (The Single-Use Magic)
+        await Invite.deleteOne({ code: inviteCode });
+
+        res.json({ message: "Welcome to the Vault! Account created successfully." });
+
+    } catch (err) {
+        console.error("Signup Error:", err);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
 });
 
 // 2.  Song getter
@@ -161,6 +232,33 @@ app.post('/api/upload', auth, upload, async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: "Upload failed" });
+    }
+});
+// 🎟️ GENERATE INVITE CODE (Admin Only)
+app.post('/api/invites/generate', async (req, res) => {
+    // 1. Security Check: Only you (the Admin) can generate codes
+    const token = req.header('auth-token');
+    if (!token) return res.status(401).json({ error: 'Access Denied' });
+
+    try {
+        const verified = jwt.verify(token, process.env.JWT_SECRET);
+        if (verified.role !== 'admin') {
+            return res.status(403).json({ error: 'Nice try. Admins only.' });
+        }
+
+        // 2. Generate a random 6-character hex code
+        const randomHex = crypto.randomBytes(3).toString('hex').toUpperCase();
+        const newCode = `SUDO-${randomHex}`; // Looks like: SUDO-4F8A9B
+
+        // 3. Save to Database
+        const invite = new Invite({ code: newCode });
+        await invite.save();
+
+        res.json({ message: 'Invite code generated!', code: newCode });
+
+    } catch (err) {
+        console.error("Error generating code:", err);
+        res.status(500).json({ error: 'Server error' });
     }
 });
 
