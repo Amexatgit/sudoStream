@@ -13,7 +13,7 @@ export default function Upload() {
   // NEW: State for the Invite Code Generator
   const [inviteCode, setInviteCode] = useState('');
 
-  const API_URL = "http://192.168.1.37:8000";
+  const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
   // Security Check
   useEffect(() => {

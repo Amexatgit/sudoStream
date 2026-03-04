@@ -7,7 +7,7 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const API_URL = "http://192.168.1.37:8000";
+  const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
   const handleLogin = async (e) => {
     e.preventDefault();

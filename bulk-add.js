@@ -13,9 +13,6 @@ const COVERS_DIR = path.join(__dirname, 'covers');
 // 🟢 Auto-create the covers folder if it doesn't exist
 if (!fs.existsSync(COVERS_DIR)) fs.mkdirSync(COVERS_DIR);
 
-// ⚠️ Ensure this matches your actual backend IP
-const API_URL = "http://192.168.1.37:8000"; 
-
 async function ingestSongs() {
     try {
         console.log("🔌 Connecting to Database...");
@@ -42,6 +39,8 @@ async function ingestSongs() {
                         // 🟢 EXTRACTION MAGIC
                         const filePath = path.join(MUSIC_DIR, file);
                         const tags = NodeID3.read(filePath);
+                        
+                        // Default fallback image
                         let imageUrl = "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=150&auto=format&fit=crop"; 
 
                         if (tags.image && tags.image.imageBuffer) {
@@ -50,8 +49,8 @@ async function ingestSongs() {
                             const imagePath = path.join(COVERS_DIR, imageName);
                             fs.writeFileSync(imagePath, tags.image.imageBuffer);
                             
-                            // Point the database to the newly saved image
-                            imageUrl = `${API_URL}/covers/${imageName}`;
+                            // ✅ THE FIX: Save ONLY the relative path!
+                            imageUrl = `/covers/${imageName}`;
                         }
 
                         const exists = await Song.findOne({ filename: file });

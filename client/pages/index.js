@@ -31,8 +31,7 @@ export default function Home() {
   const [bgOpacity, setBgOpacity] = useState(0);
   const [bgImage, setBgImage] = useState(null);
 
-  
-  const API_URL = "http://192.168.1.37:8000"; 
+  const API_URL = process.env.NEXT_PUBLIC_API_URL; 
   const audioRef = useRef(null);
 
   // 1. FETCH SONGS & CHECK ROLES
@@ -49,8 +48,41 @@ export default function Home() {
       headers: { 'auth-token': token || '' }
     })
       .then(res => res.json())
-      .then(data => setSongs(data))
-      .catch(err => console.error("Failed to fetch:", err));
+      .then(data => {
+          // 🛡️ ARMOR ADDED: Verify data is an array before setting!
+          if (Array.isArray(data)) {
+              setSongs(data);
+          } else {
+              console.error("Backend sent an error instead of songs:", data);
+              setSongs([]); // Fallback to empty array to prevent WSOD
+          }
+      })
+      .catch(err => {
+          console.error("Failed to fetch:", err);
+          setSongs([]); // Fallback
+      });
+  }, [API_URL]);
+
+  // ⏳ GUEST TIMER ENFORCER
+  useEffect(() => {
+    const role = localStorage.getItem('role');
+    
+    if (role === 'guest') {
+      const enforceTimer = () => {
+        const expireTime = localStorage.getItem('trialExpiresAt');
+        const currentMs = new Date().getTime();
+
+        if (expireTime && currentMs > expireTime) {
+          alert("⏳ Free Trial Expired! Kicking you out...");
+          localStorage.clear();
+          window.location.href = '/login';
+        }
+      };
+
+      enforceTimer();
+      const interval = setInterval(enforceTimer, 1000);
+      return () => clearInterval(interval);
+    }
   }, []);
 
   // 2. CINEMATIC FADE LOGIC
@@ -58,24 +90,27 @@ export default function Home() {
     if (currentSong) {
       setBgOpacity(0);
       const timer = setTimeout(() => {
-        setBgImage(currentSong.image);
+        // 🛡️ ARMOR: Safely extract the full image URL for the background
+        const fullImgUrl = currentSong.image?.startsWith('http') 
+            ? currentSong.image 
+            : `${API_URL}${currentSong.image}`;
+        setBgImage(fullImgUrl);
         setBgOpacity(1);
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [currentSong]);
-const handleLogout = () => {
-    // 1. Wipe the credentials
+  }, [currentSong, API_URL]);
+
+  const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('username');
     localStorage.removeItem('role');
-    
-    // 2. The Clean Exit (Forces a full browser navigation to the login screen)
+    localStorage.removeItem('trialExpiresAt'); // Clean up timer just in case
     window.location.href = '/login'; 
   };
-const togglePrivacy = async (song, e) => {
-    e.stopPropagation(); // 🛑 Prevents the song from playing when you just want to click the button
-    
+
+  const togglePrivacy = async (song, e) => {
+    e.stopPropagation();
     const token = localStorage.getItem('token');
     try {
         const res = await fetch(`${API_URL}/api/songs/${song._id}/toggle-privacy`, {
@@ -85,13 +120,39 @@ const togglePrivacy = async (song, e) => {
         
         if (res.ok) {
             const updatedSong = await res.json();
-            // Update the screen instantly without refreshing the page
             setSongs(songs.map(s => s._id === song._id ? updatedSong : s));
         }
     } catch (err) {
         console.error("Failed to toggle privacy:", err);
     }
   };
+
+  const deleteSong = async (song, e) => {
+    e.stopPropagation();
+    const confirmDelete = window.confirm(`Are you sure you want to delete "${song.title}" forever? 🗑️`);
+    if (!confirmDelete) return;
+
+    const token = localStorage.getItem('token');
+    try {
+        const res = await fetch(`${API_URL}/api/songs/${song._id}`, {
+            method: 'DELETE',
+            headers: { 'auth-token': token }
+        });
+        
+        if (res.ok) {
+            setSongs(songs.filter(s => s._id !== song._id));
+            if (currentSong?._id === song._id) {
+                setCurrentSong(null);
+                setIsPlaying(false);
+            }
+        } else {
+            alert("Failed to delete song. Is the backend route set up?");
+        }
+    } catch (err) {
+        console.error("Failed to delete:", err);
+    }
+  };
+
   const playSong = (song) => {
     if (currentSong?._id === song._id) {
       if (isPlaying) {
@@ -109,9 +170,9 @@ const togglePrivacy = async (song, e) => {
   };
 
   const playNext = () => {
-    // Logic: If logged in, play from all songs. If not, only public.
     const visibleSongs = isLoggedIn ? songs : songs.filter(s => !s.isPrivate);
-    const currentIndex = visibleSongs.findIndex(s => s._id === currentSong._id);
+    if (visibleSongs.length === 0) return; // Prevent crash if no songs
+    const currentIndex = visibleSongs.findIndex(s => s._id === currentSong?._id);
     const nextSong = visibleSongs[currentIndex + 1] || visibleSongs[0]; 
     playSong(nextSong);
   };
@@ -135,33 +196,49 @@ const togglePrivacy = async (song, e) => {
         border: currentSong?._id === song._id ? '1px solid #1DB954' : 'none'
       }}
     >
-      <img src={song.image || "https://picsum.photos/50"} style={styles.thumbnail} />
+      {/* 🛡️ ARMOR ADDED: Optional chaining on song.image */}
+      <img 
+        src={song.image?.startsWith('http') ? song.image : `${API_URL}${song.image}`} 
+        style={styles.thumbnail} 
+        alt="cover"
+      />
       <div style={styles.songInfo}>
         <strong style={{color: currentSong?._id === song._id ? '#1DB954' : '#fff'}}>
           {song.title}
         </strong>
         <div style={styles.artist}>
           {song.artist} 
-          {song.isPrivate && <span style={{marginLeft: '8px', display: 'inline-flex', alignItems: 'center'}} title="Private Song"></span>}
+          {song.isPrivate && <span style={{marginLeft: '8px', display: 'inline-flex', alignItems: 'center'}} title="Private Song"><LockIcon /></span>}
         </div>
       </div>
       <span style={{display: 'flex', alignItems: 'center', gap: '15px'}}>
         
-        {/* 👑 ADMIN ONLY: Toggle Privacy Button */}
         {isAdmin && (
-            <button 
-                onClick={(e) => togglePrivacy(song, e)}
-                style={{
-                    padding: '4px 10px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer',
-                    backgroundColor: song.isPrivate ? '#1DB954' : '#ff4d4d', // Green to Make Public, Red to Hide
-                    color: '#fff', border: 'none', borderRadius: '12px', textTransform: 'uppercase'
-                }}
-            >
-                {song.isPrivate ? 'Make Public 🌍' : 'Hide in Vault 🏴‍☠️'}
-            </button>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button 
+                    onClick={(e) => togglePrivacy(song, e)}
+                    style={{
+                        padding: '4px 10px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer',
+                        backgroundColor: song.isPrivate ? '#1DB954' : '#ff4d4d', 
+                        color: '#fff', border: 'none', borderRadius: '12px', textTransform: 'uppercase'
+                    }}
+                >
+                    {song.isPrivate ? 'Make Public 🌍' : 'Hide in Vault 🏴‍☠️'}
+                </button>
+
+                <button 
+                    onClick={(e) => deleteSong(song, e)}
+                    style={{
+                        padding: '4px 10px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer',
+                        backgroundColor: 'transparent', color: '#ff4d4d', border: '1px solid #ff4d4d', 
+                        borderRadius: '12px', textTransform: 'uppercase', transition: '0.2s'
+                    }}
+                >
+                    🗑️ Delete
+                </button>
+            </div>
         )}
 
-        {/* Play/Pause Icon */}
         {currentSong?._id === song._id && isPlaying ? <PauseIcon color="#1DB954" size={20} /> : <PlayIcon color="#fff" size={20} />}
       </span>
     </div>
@@ -187,19 +264,16 @@ const togglePrivacy = async (song, e) => {
             <h1 style={styles.title}>Sudo<span style={{color: '#1DB954'}}>Stream</span></h1>
           <div style={{display: 'flex', justifyContent: 'center', gap: '15px', marginTop: '10px'}}>
               
-              {/* LOGGED IN NAV */}
               {isLoggedIn ? (
                   <>
                       {isAdmin && <span style={{color: '#1DB954', fontWeight: 'bold', fontSize: '14px', display: 'flex', alignItems: 'center'}}>Admin Mode</span>}
                       {!isAdmin && <span style={{color: '#bbb', fontSize: '14px', display: 'flex', alignItems: 'center'}}>Premium Access</span>}
                       
-                      {/* Only Admin sees Upload */}
                       {isAdmin && <Link href="/upload"><button style={styles.navBtn}>Upload</button></Link>}
                       
                       <button onClick={handleLogout} style={styles.navBtn}>Logout</button>
                   </>
               ) : (
-                  // 🎟️ LOGGED OUT NAV (Updated with Invite Button)
                   <>
                       <Link href="/signup">
                           <button style={{
@@ -223,7 +297,6 @@ const togglePrivacy = async (song, e) => {
         {/* SONG LISTS */}
         <div style={styles.list}>
           
-          {/* 1. LOGGED IN VIEW: Private Collection ONLY */}
           {isLoggedIn && (
             <>
                 {privateSongs.length > 0 ? (
@@ -237,7 +310,6 @@ const togglePrivacy = async (song, e) => {
             </>
           )}
 
-          {/* 2. LOGGED OUT VIEW: Public Library ONLY */}
           {!isLoggedIn && (
              <div>
                <h2 style={styles.sectionTitle}>Public Library</h2>
@@ -248,7 +320,6 @@ const togglePrivacy = async (song, e) => {
              </div>
           )}
 
-          {/* ABOUT SECTION (Only visible to Public Guests) */}
           {!isLoggedIn && (
             <div style={styles.aboutSection}>
                 <h3 style={{color: '#fff', borderBottom: '1px solid #333', paddingBottom: '10px'}}>About SudoStream</h3>
@@ -279,7 +350,12 @@ const togglePrivacy = async (song, e) => {
       {currentSong && (
         <div style={styles.player}>
           <div style={styles.playerInfo}>
-             <img src={currentSong.image} style={styles.playerArt} />
+             {/* 🛡️ ARMOR ADDED: Optional chaining here too */}
+             <img 
+                src={currentSong.image?.startsWith('http') ? currentSong.image : `${API_URL}${currentSong.image}`} 
+                style={styles.playerArt} 
+                alt="cover"
+             />
              <div>
                <div style={{fontWeight: 'bold'}}>{currentSong.title}</div>
                <div style={{fontSize: '12px', color: '#ccc'}}>{currentSong.artist}</div>
@@ -304,7 +380,6 @@ const togglePrivacy = async (song, e) => {
   );
 }
 
-// ✅ FIXED: Missing styles object restored below
 const styles = {
   container: { backgroundColor: '#121212', color: '#fff', minHeight: '100vh', paddingBottom: '120px', fontFamily: 'sans-serif' },
   header: { padding: '20px', textAlign: 'center' },

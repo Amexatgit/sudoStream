@@ -82,7 +82,7 @@ app.post('/api/login', async (req, res) => {
     // 🧨 1. THE TRAPDOOR (5-Minute Guest Pass)
     // If they use the public guest credentials...
   
-if (username?.trim().toLowerCase() === 'FreeTrail' && password?.trim() === 'justcheckingout')  {
+if (username?.trim().toLowerCase() === 'freetrial' && password?.trim() === 'justcheckingout')  {
         
         // Issue a token that self-destructs in 5 minutes
         const token = jwt.sign(
@@ -216,14 +216,15 @@ app.post('/api/upload', auth, upload, async (req, res) => {
         const songFile = req.files['songFile'][0];
         const imageFile = req.files['imageFile'] ? req.files['imageFile'][0] : null;
 
-        
-        const BASE_URL = "http://192.168.1.37:8000"; 
-
+        // ✅ THE BULLETPROOF WAY: Save ONLY the relative path. 
+        // No BASE_URL, no IP addresses, no ports.
         const newSong = new Song({
             title: req.body.title || songFile.originalname,
             artist: req.body.artist || "Unknown Artist",
             filename: songFile.filename,
-            image: imageFile ? `${BASE_URL}/public/${imageFile.filename}` : `${BASE_URL}/public/logo.png`,
+            
+            // Just the folder and the filename!
+            image: imageFile ? `/public/${imageFile.filename}` : `/public/logo.png`,
             isPrivate: req.body.isPrivate === 'true' 
         });
 
@@ -262,22 +263,31 @@ app.post('/api/invites/generate', async (req, res) => {
     }
 });
 
-// 4. 🗑️ DELETE (Protected by 'auth')
+// 🗑️ DELETE SONG (Database Only)
 app.delete('/api/songs/:id', auth, async (req, res) => {
     try {
-        const song = await Song.findById(req.params.id);
-        if (!song) return res.status(404).json({ error: "Song not found" });
+        // 1. Ensure the user is an Admin (Extra Security layer)
+        if (req.user.role !== 'admin') {
+            return res.status(403).json({ error: "Access Denied: Only the Piracy King can delete songs. 🏴‍☠️" });
+        }
 
-        // Delete MP3
-        const filePath = path.join(__dirname, 'music', song.filename);
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        // 2. Find the song and remove it from the MongoDB database
+        const deletedSong = await Song.findByIdAndDelete(req.params.id);
 
-        // Delete DB Entry
-        await Song.findByIdAndDelete(req.params.id);
-        
-        res.json({ message: "Song deleted successfully" });
+        if (!deletedSong) {
+            return res.status(404).json({ error: "Song not found in the vault." });
+        }
+
+        /* * 🛑 INTENTIONAL OMISSION: 
+         * We are NOT using the 'fs' module to delete the physical files from the 
+         * /music or /covers folders. The files remain safe on your hard drive!
+         */
+
+        res.json({ message: "Song successfully wiped from the database.", song: deletedSong });
+
     } catch (err) {
-        res.status(500).json({ error: "Delete failed" });
+        console.error("Delete Error:", err);
+        res.status(500).json({ error: "Internal Server Error during deletion." });
     }
 });
 
