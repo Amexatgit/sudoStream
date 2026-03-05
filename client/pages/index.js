@@ -23,6 +23,7 @@ export default function Home() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [buffered, setBuffered] = useState(0);
    
   // 🔐 ROLES STATE
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -30,6 +31,10 @@ export default function Home() {
    
   const [bgOpacity, setBgOpacity] = useState(0);
   const [bgImage, setBgImage] = useState(null);
+  const [scrolled, setScrolled] = useState(false); // navbar condense trigger
+  // 🔍 SEARCH STATE
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL; 
   const audioRef = useRef(null);
@@ -83,6 +88,13 @@ export default function Home() {
       const interval = setInterval(enforceTimer, 1000);
       return () => clearInterval(interval);
     }
+  }, []);
+
+  // 🎬 SCROLL LISTENER — condense navbar after 80px
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 80);
+    window.addEventListener('scroll', onScroll);
+    return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
   // 2. CINEMATIC FADE LOGIC
@@ -186,6 +198,16 @@ export default function Home() {
   const privateSongs = songs.filter(song => song.isPrivate);
   const publicSongs = songs.filter(song => !song.isPrivate);
 
+  // 🔍 SEARCH FILTER
+  const filterSongs = (list) => {
+    if (!searchQuery.trim()) return list;
+    const q = searchQuery.toLowerCase();
+    return list.filter(s =>
+      s.title?.toLowerCase().includes(q) ||
+      s.artist?.toLowerCase().includes(q)
+    );
+  };
+
   const renderSongRow = (song) => (
     <div 
       key={song._id} 
@@ -259,38 +281,203 @@ export default function Home() {
       {/* CONTENT */}
       <div style={{ position: 'relative', zIndex: 1 }}>
         
-        {/* HEADER */}
-        <div style={styles.header}>
-            <h1 style={styles.title}>Sudo<span style={{color: '#1DB954'}}>Stream</span></h1>
-          <div style={{display: 'flex', justifyContent: 'center', gap: '15px', marginTop: '10px'}}>
-              
-              {isLoggedIn ? (
-                  <>
-                      {isAdmin && <span style={{color: '#1DB954', fontWeight: 'bold', fontSize: '14px', display: 'flex', alignItems: 'center'}}>Admin Mode</span>}
-                      {!isAdmin && <span style={{color: '#bbb', fontSize: '14px', display: 'flex', alignItems: 'center'}}>Premium Access</span>}
-                      
-                      {isAdmin && <Link href="/upload"><button style={styles.navBtn}>Upload</button></Link>}
-                      
-                      <button onClick={handleLogout} style={styles.navBtn}>Logout</button>
-                  </>
-              ) : (
-                  <>
-                      <Link href="/signup">
-                          <button style={{
-                              padding: '5px 10px',
-                              backgroundColor: 'transparent',
-                              border: '1px solid #1DB954',
-                              color: '#1DB954',
-                              borderRadius: '4px',
-                              cursor: 'pointer',
-                              fontSize: '14px'
-                          }}>
-                              Invite Code
-                          </button>
-                      </Link>
-                      <Link href="/login"><button style={styles.navBtn}>Free Login</button></Link>
-                  </>
-              )}
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 40,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: scrolled ? '10px 24px' : '0px 24px',
+          height: scrolled ? '56px' : '0px',
+          overflow: 'hidden',
+          backgroundColor: scrolled ? 'rgba(18, 18, 18, 0.75)' : 'transparent',
+          backdropFilter: scrolled ? 'blur(20px)' : 'none',
+          WebkitBackdropFilter: scrolled ? 'blur(20px)' : 'none',
+          borderBottom: scrolled ? '1px solid rgba(255,255,255,0.08)' : 'none',
+          boxShadow: scrolled ? '0 4px 30px rgba(0,0,0,0.4)' : 'none',
+          transition: 'all 0.35s cubic-bezier(0.4, 0, 0.2, 1)'
+        }}>
+          {/* Logo — slides in from left when scrolled */}
+          <div style={{
+            opacity: scrolled ? 1 : 0,
+            transform: scrolled ? 'translateX(0)' : 'translateX(-20px)',
+            transition: 'all 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
+            fontSize: '20px', fontWeight: 'bold', letterSpacing: '-0.5px', flexShrink: 0
+          }}>
+            sudo<span style={{ color: '#1DB954', textShadow: '0 0 20px rgba(29,185,84,0.5)' }}>Stream</span>
+          </div>
+
+          {/* Nav buttons + Search — slide in from right when scrolled */}
+          <div style={{
+            opacity: scrolled ? 1 : 0,
+            transform: scrolled ? 'translateX(0)' : 'translateX(20px)',
+            transition: 'all 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
+            display: 'flex', alignItems: 'center', gap: '8px'
+          }}>
+
+            {/* 🔍 SEARCH — lives inside navbar when scrolled */}
+            {searchOpen && (
+              <input
+                autoFocus
+                type="text"
+                placeholder="Search title or artist..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                onKeyDown={e => e.key === 'Escape' && (setSearchOpen(false), setSearchQuery(''))}
+                style={{
+                  padding: '6px 12px', borderRadius: '20px',
+                  border: '1px solid #1DB954',
+                  backgroundColor: 'rgba(255,255,255,0.08)',
+                  color: '#fff', fontSize: '13px', outline: 'none', width: '180px'
+                }}
+              />
+            )}
+            <button
+              onClick={() => { setSearchOpen(!searchOpen); if (searchOpen) setSearchQuery(''); }}
+              style={{
+                width: '32px', height: '32px', borderRadius: '50%', flexShrink: 0,
+                backgroundColor: searchOpen ? '#1DB954' : 'rgba(255,255,255,0.08)',
+                border: '1px solid ' + (searchOpen ? '#1DB954' : 'rgba(255,255,255,0.15)'),
+                color: searchOpen ? '#000' : '#fff',
+                cursor: 'pointer', display: 'flex', alignItems: 'center',
+                justifyContent: 'center', transition: 'all 0.2s'
+              }}
+              title="Search songs"
+            >
+              {searchOpen
+                ? <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                : <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+              }
+            </button>
+
+            {/* divider */}
+            <div style={{ width: '1px', height: '20px', backgroundColor: 'rgba(255,255,255,0.15)' }} />
+
+            {isLoggedIn ? (
+              <>
+                {isAdmin && <span style={{color: '#1DB954', fontWeight: 'bold', fontSize: '13px'}}>Admin Mode</span>}
+                {!isAdmin && <span style={{color: '#bbb', fontSize: '13px'}}>Premium Access</span>}
+                {isAdmin && <Link href="/upload"><button style={styles.navBtn}>Upload</button></Link>}
+                <Link href="/playlists"><button style={styles.navBtn}>My Playlists</button></Link>
+                <button onClick={handleLogout} style={styles.navBtn}>Logout</button>
+              </>
+            ) : (
+              <>
+                <Link href="/signup"><button style={{...styles.navBtn, backgroundColor: 'transparent', border: '1px solid #1DB954', color: '#1DB954'}}>Invite Code</button></Link>
+                <Link href="/login"><button style={styles.navBtn}>Free Login</button></Link>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* ===================== HERO HEADER ===================== */}
+        <div style={{
+          textAlign: 'center',
+          padding: '60px 20px 40px',
+          position: 'relative'
+        }}>
+          {/* Glow ring behind logo */}
+          <div style={{
+            position: 'absolute', top: '50%', left: '50%',
+            transform: 'translate(-50%, -60%)',
+            width: '300px', height: '300px', borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(29,185,84,0.12) 0%, transparent 70%)',
+            pointerEvents: 'none'
+          }} />
+
+          {/* Big logo */}
+          <h1 style={{
+            margin: '0 0 8px 0',
+            fontSize: 'clamp(32px, 6vw, 52px)',
+            fontWeight: '900',
+            letterSpacing: '-2px',
+            lineHeight: 1,
+            background: 'linear-gradient(135deg, #ffffff 40%, #1DB954 100%)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            backgroundClip: 'text',
+            filter: 'drop-shadow(0 0 30px rgba(29,185,84,0.3))'
+          }}>
+            sudo<span style={{color: '#1DB954', WebkitTextFillColor: '#1DB954'}}>Stream</span>
+          </h1>
+
+          {/* Tagline */}
+          <p style={{
+            margin: '0 0 28px 0',
+            color: '#666',
+            fontSize: '13px',
+            letterSpacing: '3px',
+            textTransform: 'uppercase'
+          }}>
+            Because music shouldn't have a monthly fee.
+          </p>
+
+          {/* Glassmorphism nav pill */}
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '10px',
+            padding: '8px 16px',
+            borderRadius: '40px',
+            backgroundColor: 'rgba(255,255,255,0.05)',
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            boxShadow: '0 4px 24px rgba(0,0,0,0.3)'
+          }}>
+            {isLoggedIn ? (
+              <>
+                {isAdmin && <span style={{color: '#1DB954', fontWeight: 'bold', fontSize: '13px'}}> Admin Mode</span>}
+                {!isAdmin && <span style={{color: '#bbb', fontSize: '13px'}}>✦ Premium Access</span>}
+                {isAdmin && <Link href="/upload"><button style={styles.pillBtn}>Upload</button></Link>}
+                <Link href="/playlists"><button style={styles.pillBtn}>My Playlists</button></Link>
+                <button onClick={handleLogout} style={styles.pillBtn}>Logout</button>
+              </>
+            ) : (
+              <>
+                <Link href="/signup">
+                  <button style={{...styles.pillBtn, border: '1px solid #1DB954', color: '#1DB954', backgroundColor: 'transparent'}}>
+                    Invite Code
+                  </button>
+                </Link>
+                <Link href="/login"><button style={styles.pillBtn}>Free Login</button></Link>
+              </>
+            )}
+
+            {/* divider */}
+            <div style={{ width: '1px', height: '18px', backgroundColor: 'rgba(255,255,255,0.15)' }} />
+
+            {/* 🔍 Search in hero pill */}
+            {searchOpen && (
+              <input
+                autoFocus
+                type="text"
+                placeholder="Search..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                onKeyDown={e => e.key === 'Escape' && (setSearchOpen(false), setSearchQuery(''))}
+                style={{
+                  padding: '4px 10px', borderRadius: '20px',
+                  border: '1px solid #1DB954',
+                  backgroundColor: 'rgba(255,255,255,0.08)',
+                  color: '#fff', fontSize: '13px', outline: 'none', width: '160px'
+                }}
+              />
+            )}
+            <button
+              onClick={() => { setSearchOpen(!searchOpen); if (searchOpen) setSearchQuery(''); }}
+              style={{
+                width: '28px', height: '28px', borderRadius: '50%', flexShrink: 0,
+                backgroundColor: searchOpen ? '#1DB954' : 'transparent',
+                border: '1px solid ' + (searchOpen ? '#1DB954' : 'rgba(255,255,255,0.2)'),
+                color: searchOpen ? '#000' : '#fff',
+                cursor: 'pointer', display: 'flex', alignItems: 'center',
+                justifyContent: 'center', transition: 'all 0.2s'
+              }}
+              title="Search songs"
+            >
+              {searchOpen
+                ? <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                : <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+              }
+            </button>
           </div>
         </div>
 
@@ -299,13 +486,15 @@ export default function Home() {
           
           {isLoggedIn && (
             <>
-                {privateSongs.length > 0 ? (
+                {filterSongs(privateSongs).length > 0 ? (
                     <div>
                         <h2 style={styles.sectionTitle}>🏴‍☠️ Private Collection</h2>
-                        {privateSongs.map(renderSongRow)}
+                        {filterSongs(privateSongs).map(renderSongRow)}
                     </div>
                 ) : (
-                    <p style={{textAlign: 'center', color: '#555', marginTop: '40px'}}>No private songs yet.</p>
+                    <p style={{textAlign: 'center', color: '#555', marginTop: '40px'}}>
+                        {searchQuery ? `No results for "${searchQuery}"` : 'No private songs yet.'}
+                    </p>
                 )}
             </>
           )}
@@ -314,9 +503,13 @@ export default function Home() {
              <div>
                <h2 style={styles.sectionTitle}>Public Library</h2>
                <p style={{color: '#b3b3b3', fontSize: '14px', lineHeight: '1.6'}}>
-                    This section contains Non copyright songs only. You need to login to access copyright songs, Create personalized Playlists, Stream Endless premium music...... and many more.
+                    This section contains Non copyright songs only. You need to login to access copyright songs, Create personalized Playlists, Stream Endless premium music and many more Features 
                 </p>
-               {publicSongs.length > 0 ? publicSongs.map(renderSongRow) : <p style={{textAlign: 'center', color: '#555'}}>No public songs found.</p>}
+               {filterSongs(publicSongs).length > 0
+                 ? filterSongs(publicSongs).map(renderSongRow)
+                 : <p style={{textAlign: 'center', color: '#555'}}>
+                     {searchQuery ? `No results for "${searchQuery}"` : 'No public songs found.'}
+                   </p>}
              </div>
           )}
 
@@ -370,10 +563,60 @@ export default function Home() {
           </div>
           <div style={styles.progressBarContainer}>
             <span style={styles.timeText}>{formatTime(currentTime)}</span>
-            <input type="range" min="0" max={duration || 0} value={currentTime} onChange={handleSeek} style={styles.slider} />
+
+            {/* LAYERED PROGRESS BAR */}
+            <div
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const newTime = ((e.clientX - rect.left) / rect.width) * duration;
+                audioRef.current.currentTime = newTime;
+                setCurrentTime(newTime);
+              }}
+              style={{ position: 'relative', flexGrow: 1, height: '4px', borderRadius: '2px', backgroundColor: '#3e3e3e', cursor: 'pointer' }}
+            >
+              {/* Layer 1 — Buffered (light green) */}
+              <div style={{
+                position: 'absolute', top: 0, left: 0, height: '100%',
+                width: `${buffered}%`, borderRadius: '2px',
+                backgroundColor: 'rgba(29,185,84,0.25)',
+                transition: 'width 0.4s ease'
+              }} />
+              {/* Layer 2 — Played (bright green) */}
+              <div style={{
+                position: 'absolute', top: 0, left: 0, height: '100%',
+                width: `${duration ? (currentTime / duration) * 100 : 0}%`,
+                borderRadius: '2px', backgroundColor: '#1DB954',
+                transition: 'width 0.1s linear'
+              }} />
+              {/* Layer 3 — Scrubber dot */}
+              <div style={{
+                position: 'absolute', top: '50%',
+                left: `${duration ? (currentTime / duration) * 100 : 0}%`,
+                transform: 'translate(-50%, -50%)',
+                width: '12px', height: '12px', borderRadius: '50%',
+                backgroundColor: '#fff',
+                boxShadow: '0 0 4px rgba(0,0,0,0.5)',
+                transition: 'left 0.1s linear'
+              }} />
+            </div>
+
             <span style={styles.timeText}>{formatTime(duration)}</span>
           </div>
-          <audio ref={audioRef} src={`${API_URL}/music/${currentSong.filename}`} onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)} onLoadedMetadata={(e) => setDuration(e.target.duration)} onEnded={playNext} autoPlay />
+          <audio
+            ref={audioRef}
+            src={`${API_URL}/music/${currentSong.filename}`}
+            onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)}
+            onLoadedMetadata={(e) => setDuration(e.target.duration)}
+            onProgress={(e) => {
+              const audio = e.target;
+              if (audio.buffered.length > 0 && audio.duration) {
+                const bufferedEnd = audio.buffered.end(audio.buffered.length - 1);
+                setBuffered((bufferedEnd / audio.duration) * 100);
+              }
+            }}
+            onEnded={playNext}
+            autoPlay
+          />
         </div>
       )}
     </div>
@@ -385,7 +628,8 @@ const styles = {
   header: { padding: '20px', textAlign: 'center' },
   title: { margin: 0, color: '#fff', fontSize: '28px' },
   sectionTitle: { fontSize: '18px', color: '#b3b3b3', margin: '20px 0 10px', paddingLeft: '5px', textTransform: 'uppercase', letterSpacing: '1px', borderBottom: '1px solid #333', paddingBottom: '5px' },
-  navBtn: { marginLeft: '10px', padding: '5px 10px', backgroundColor: '#333', border: 'none', color: 'white', borderRadius: '4px', cursor: 'pointer', fontSize: '14px' },
+  navBtn: { padding: '5px 12px', backgroundColor: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', transition: '0.2s' },
+  pillBtn: { padding: '5px 12px', backgroundColor: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', color: 'white', borderRadius: '20px', cursor: 'pointer', fontSize: '13px', transition: '0.2s' },
   list: { padding: '10px', maxWidth: '800px', margin: '0 auto' },
   songItem: { display: 'flex', alignItems: 'center', padding: '10px', marginBottom: '8px', borderRadius: '8px', cursor: 'pointer', transition: '0.2s' },
   thumbnail: { width: '50px', height: '50px', borderRadius: '4px', marginRight: '15px', objectFit: 'cover' },

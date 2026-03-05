@@ -1,4 +1,3 @@
-
 require('dotenv').config(); // Load the .env file
 
 const crypto = require('crypto');
@@ -15,6 +14,7 @@ const bcrypt = require('bcryptjs');
 
 const Song = require('./models/Song');
 const User = require('./models/User');
+const Playlist = require('./models/Playlist');
 
 const app = express();
 const PORT = 8000;
@@ -130,7 +130,7 @@ app.post('/api/signup', async (req, res) => {
         // 1. Verify the Invite Code exists
         const validInvite = await Invite.findOne({ code: inviteCode });
         if (!validInvite) {
-            return res.status(400).json({ error: "Invalid or expired invite code." });
+            return res.status(400).json({ error: "Nice Try Diddy : Invalid or expired invite code." });
         }
 
         // 2. Check if the username is already taken
@@ -288,6 +288,98 @@ app.delete('/api/songs/:id', auth, async (req, res) => {
     } catch (err) {
         console.error("Delete Error:", err);
         res.status(500).json({ error: "Internal Server Error during deletion." });
+    }
+});
+
+// ================= PLAYLIST ROUTES =================
+
+// Helper: block guests from playlist actions
+const noGuests = (req, res, next) => {
+    if (req.user.role === 'guest') {
+        return res.status(403).json({ error: "Guests can't create playlists. Get a permanent account!" });
+    }
+    next();
+};
+
+// 📋 GET all playlists for the logged-in user (populated with song data)
+app.get('/api/playlists', auth, noGuests, async (req, res) => {
+    try {
+        const playlists = await Playlist.find({ owner: req.user._id })
+            .populate('songs')
+            .sort({ createdAt: -1 });
+        res.json(playlists);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ➕ CREATE a new playlist
+app.post('/api/playlists', auth, noGuests, async (req, res) => {
+    try {
+        const { name } = req.body;
+        if (!name || !name.trim()) return res.status(400).json({ error: "Playlist name is required." });
+
+        const playlist = new Playlist({
+            name: name.trim(),
+            owner: req.user._id,
+            songs: []
+        });
+        await playlist.save();
+        res.json(playlist);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 🗑️ DELETE a playlist
+app.delete('/api/playlists/:id', auth, noGuests, async (req, res) => {
+    try {
+        const playlist = await Playlist.findOne({ _id: req.params.id, owner: req.user._id });
+        if (!playlist) return res.status(404).json({ error: "Playlist not found or not yours." });
+
+        await Playlist.findByIdAndDelete(req.params.id);
+        res.json({ message: "Playlist deleted." });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 🎵 ADD a song to a playlist
+app.post('/api/playlists/:id/songs', auth, noGuests, async (req, res) => {
+    try {
+        const { songId } = req.body;
+        const playlist = await Playlist.findOne({ _id: req.params.id, owner: req.user._id });
+        if (!playlist) return res.status(404).json({ error: "Playlist not found or not yours." });
+
+        // Prevent duplicates
+        if (playlist.songs.includes(songId)) {
+            return res.status(400).json({ error: "Song already in this playlist." });
+        }
+
+        playlist.songs.push(songId);
+        await playlist.save();
+
+        // Return the updated playlist populated with song data
+        const updated = await Playlist.findById(playlist._id).populate('songs');
+        res.json(updated);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ❌ REMOVE a song from a playlist
+app.delete('/api/playlists/:id/songs/:songId', auth, noGuests, async (req, res) => {
+    try {
+        const playlist = await Playlist.findOne({ _id: req.params.id, owner: req.user._id });
+        if (!playlist) return res.status(404).json({ error: "Playlist not found or not yours." });
+
+        playlist.songs = playlist.songs.filter(s => s.toString() !== req.params.songId);
+        await playlist.save();
+
+        const updated = await Playlist.findById(playlist._id).populate('songs');
+        res.json(updated);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
