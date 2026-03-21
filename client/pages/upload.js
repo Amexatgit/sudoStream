@@ -13,6 +13,11 @@ export default function Upload() {
   // NEW: State for the Invite Code Generator
   const [inviteCode, setInviteCode] = useState('');
 
+  // Download via URL state
+  const [downloadUrl, setDownloadUrl] = useState('');
+  const [downloadStatus, setDownloadStatus] = useState(''); // idle | downloading | success | error
+  const [downloadResult, setDownloadResult] = useState(null);
+
   const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
   // Security Check
@@ -101,6 +106,39 @@ export default function Upload() {
     }
   };
 
+  const handleDownload = async () => {
+    if (!downloadUrl.trim()) return;
+    setDownloadStatus('downloading');
+    setDownloadResult(null);
+    const token = localStorage.getItem('token');
+
+    try {
+      const res = await fetch(`${API_URL}/api/download`, {
+        method: 'POST',
+        headers: {
+          'auth-token': token,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ url: downloadUrl.trim() })
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setDownloadStatus('success');
+        setDownloadResult(data.song);
+        setDownloadUrl('');
+      } else {
+        setDownloadStatus('error');
+        setDownloadResult({ error: data.error || 'Download failed.' });
+      }
+    } catch (err) {
+      console.error(err);
+      setDownloadStatus('error');
+      setDownloadResult({ error: 'Could not reach server.' });
+    }
+  };
+
   return (
     <div style={styles.container}>
       <div style={styles.card}>
@@ -176,6 +214,83 @@ export default function Upload() {
         <button onClick={() => router.push('/')} style={styles.backLink}>
           Click here for copyright songs
         </button>
+
+        {/* ⬇️ DOWNLOAD VIA URL PANEL */}
+        <div style={styles.downloadPanel}>
+          <h3 style={styles.vipTitle}>⬇️ Download via URL</h3>
+          <p style={styles.vipDesc}>
+            Paste a YouTube or Spotify URL. The server will download it,
+            extract album art, and add it to the vault automatically.
+          </p>
+
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+            <input
+              type="text"
+              placeholder="https://youtube.com/watch?v=..."
+              value={downloadUrl}
+              onChange={e => setDownloadUrl(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleDownload()}
+              disabled={downloadStatus === 'downloading'}
+              style={{ ...styles.input, flexGrow: 1, fontSize: '13px', padding: '10px 12px' }}
+            />
+            <button
+              onClick={handleDownload}
+              disabled={!downloadUrl.trim() || downloadStatus === 'downloading'}
+              style={{
+                ...styles.generateBtn,
+                padding: '10px 16px',
+                fontSize: '13px',
+                opacity: (!downloadUrl.trim() || downloadStatus === 'downloading') ? 0.5 : 1,
+                cursor: (!downloadUrl.trim() || downloadStatus === 'downloading') ? 'not-allowed' : 'pointer',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {downloadStatus === 'downloading' ? '⏳ Downloading...' : '⬇️ Download'}
+            </button>
+          </div>
+
+          {/* Loading bar */}
+          {downloadStatus === 'downloading' && (
+            <div style={{ backgroundColor: '#1a1a1a', borderRadius: '4px', overflow: 'hidden', height: '4px', marginBottom: '10px' }}>
+              <div style={{
+                height: '100%', width: '40%',
+                backgroundColor: '#1DB954',
+                borderRadius: '4px',
+                animation: 'slide 1.5s ease-in-out infinite'
+              }} />
+              <style>{`@keyframes slide { 0%{margin-left:0;width:40%} 50%{margin-left:60%;width:40%} 100%{margin-left:0;width:40%} }`}</style>
+            </div>
+          )}
+
+          {/* Success result */}
+          {downloadStatus === 'success' && downloadResult && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', backgroundColor: 'rgba(29,185,84,0.1)', borderRadius: '8px', border: '1px solid rgba(29,185,84,0.3)' }}>
+              {downloadResult.image && (
+                <img
+                  src={`${API_URL}${downloadResult.image}`}
+                  style={{ width: '44px', height: '44px', borderRadius: '6px', objectFit: 'cover' }}
+                  alt="cover"
+                />
+              )}
+              <div style={{ textAlign: 'left' }}>
+                <div style={{ color: '#1DB954', fontWeight: 'bold', fontSize: '14px' }}>✅ Added to Vault!</div>
+                <div style={{ color: '#ccc', fontSize: '12px' }}>{downloadResult.title} — {downloadResult.artist}</div>
+                <div style={{ color: '#666', fontSize: '11px' }}>Saved as private. Toggle visibility from the library.</div>
+              </div>
+            </div>
+          )}
+
+          {/* Error result */}
+          {downloadStatus === 'error' && downloadResult && (
+            <div style={{ padding: '10px 14px', backgroundColor: 'rgba(255,77,77,0.1)', borderRadius: '8px', border: '1px solid rgba(255,77,77,0.3)', color: '#ff6b6b', fontSize: '13px', textAlign: 'left' }}>
+              ❌ {downloadResult.error}
+            </div>
+          )}
+
+          <p style={{ color: '#555', fontSize: '11px', marginTop: '10px', marginBottom: 0 }}>
+            ⚠️ Requires <code style={{color: '#888'}}>yt-dlp</code> and <code style={{color: '#888'}}>ffmpeg</code> installed on the server.
+          </p>
+        </div>
 
         {/* 🎟️ NEW: VIP ACCESS CONTROL PANEL */}
         <div style={styles.vipPanel}>
@@ -254,6 +369,14 @@ const styles = {
     cursor: 'pointer',
     width: '100%',
     textDecoration: 'underline'
+  },
+  downloadPanel: {
+    marginTop: '24px',
+    padding: '20px',
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    borderRadius: '12px',
+    border: '1px solid rgba(29,185,84,0.4)',
+    textAlign: 'center'
   },
   // NEW STYLES FOR VIP PANEL
   vipPanel: {

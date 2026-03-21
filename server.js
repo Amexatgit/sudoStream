@@ -9,12 +9,18 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+
+// 🛡️ Auto-create folders if they don't exist (Pi migration safe)
+if (!fs.existsSync('./music'))  fs.mkdirSync('./music');
+if (!fs.existsSync('./covers')) fs.mkdirSync('./covers');
 const jwt = require('jsonwebtoken');      
 const bcrypt = require('bcryptjs');      
 
 const Song = require('./models/Song');
 const User = require('./models/User');
 const Playlist = require('./models/Playlist');
+const { exec } = require('child_process');
+const NodeID3 = require('node-id3');
 
 const app = express();
 const PORT = 8000;
@@ -56,9 +62,9 @@ const auth = (req, res, next) => {
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
         if (file.mimetype.startsWith('image/')) {
-            cb(null, './public');
+            cb(null, './covers');  // ✅ cover art → /covers
         } else {
-            cb(null, './music');
+            cb(null, './music');   // ✅ songs → /music
         }
     },
     filename: function (req, file, cb) {
@@ -130,7 +136,7 @@ app.post('/api/signup', async (req, res) => {
         // 1. Verify the Invite Code exists
         const validInvite = await Invite.findOne({ code: inviteCode });
         if (!validInvite) {
-            return res.status(400).json({ error: "Nice Try Diddy : Invalid or expired invite code." });
+            return res.status(400).json({ error: "Invalid or expired invite code." });
         }
 
         // 2. Check if the username is already taken
@@ -224,7 +230,7 @@ app.post('/api/upload', auth, upload, async (req, res) => {
             filename: songFile.filename,
             
             // Just the folder and the filename!
-            image: imageFile ? `/public/${imageFile.filename}` : `/public/logo.png`,
+            image: imageFile ? `/covers/${imageFile.filename}` : `/covers/logo.png`,
             isPrivate: req.body.isPrivate === 'true' 
         });
 
@@ -291,93 +297,199 @@ app.delete('/api/songs/:id', auth, async (req, res) => {
     }
 });
 
+// ================= DOWNLOAD ROUTE =================
+
+app.post('/api/download', auth, async (req, res) => {
+    if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Admins only. 🏴‍☠️' });
+    }
+
+    const { url } = req.body;
+    if (!url || !url.trim()) {
+        return res.status(400).json({ error: 'No URL provided.' });
+    }
+
+    const trimmedUrl = url.trim();
+    const isSpotify  = trimmedUrl.includes('spotify.com');
+    const isYoutube  = trimmedUrl.includes('youtube.com') || trimmedUrl.includes('youtu.be');
+
+    if (!isSpotify && !isYoutube) {
+        return res.status(400).json({ error: 'Only YouTube and Spotify URLs are supported.' });
+    }
+
+    let command;
+
+    if (isSpotify) {
+        // spotdl — handles Spotify DRM by sourcing audio from YouTube internally
+        // --format mp3                  → force mp3 output
+        // --bitrate 320k                → best quality
+        // --output                      → save into /music with Artist-Title pattern
+        const outputDir = path.join(__dirname, 'music');
+        
+        command = `/home/amex/.local/bin/spotdl "${trimmedUrl}" --format mp3 --bitrate 320k --client-id ${process.env.SPOTIFY_CLIENT_ID} --client-secret ${process.env.SPOTIFY_CLIENT_SECRET} --output "${outputDir}/{artist}-{title}"`;
+        console.log(`🎵 Spotify URL detected → using spotdl`);
+
+    } else {
+        // yt-dlp — direct YouTube download, best possible quality
+        // %(uploader,channel)s    → channel name as artist fallback if uploader empty
+        // -f bestaudio            → highest quality audio stream
+        // --audio-quality 0       → best quality during mp3 conversion
+        // --js-runtimes node      → use Node.js as JS runtime (fixes YouTube extraction warning)
+        // --cookies-from-browser chrome → passes login cookies, bypasses age restrictions
+        // playlist detection      → allow playlist URLs, single track otherwise
+        const isPlaylist = trimmedUrl.includes('playlist') || trimmedUrl.includes('list=');
+        const outputTemplate = path.join(__dirname, 'music', '%(uploader,channel)s--%(title)s.%(ext)s');
+        command = `yt-dlp -f bestaudio --audio-quality 0 -x --audio-format mp3 --embed-thumbnail --add-metadata --js-runtimes node --cookies-from-browser chrome --restrict-filenames ${isPlaylist ? '' : '--no-playlist'} -o "${outputTemplate}" "${trimmedUrl}"`;
+        console.log(`▶️  YouTube URL detected → using yt-dlp ${isPlaylist ? '(playlist mode)' : '(single track)'}`);
+    }
+
+    console.log(`⬇️  Running: ${command}`);
+
+    exec(command, async (error, stdout, stderr) => {
+        if (error) {
+            console.error('Download error:', stderr);
+            return res.status(500).json({
+                error: `Download failed via ${isSpotify ? 'spotdl' : 'yt-dlp'}.`,
+                detail: stderr
+            });
+        }
+
+        console.log('✅ Download complete:\n', stdout);
+
+        // ── AUTO INGEST (same logic as bulk-add.js) ──
+        try {
+            const MUSIC_DIR = path.join(__dirname, 'music');
+            const COVERS_DIR = path.join(__dirname, 'covers');
+
+            // Find the most recently modified mp3 — that's the one just downloaded
+            const mp3Files = fs.readdirSync(MUSIC_DIR)
+                .filter(f => f.toLowerCase().endsWith('.mp3'))
+                .map(f => ({ name: f, mtime: fs.statSync(path.join(MUSIC_DIR, f)).mtimeMs }))
+                .sort((a, b) => b.mtime - a.mtime);
+
+            if (mp3Files.length === 0) {
+                return res.status(500).json({ error: 'Download seemed OK but no mp3 found in /music.' });
+            }
+
+            const file        = mp3Files[0].name;
+            const safeFile    = file.replace(/[\r\n\t]/g, '');
+            const noExt  = file.substring(0, file.lastIndexOf('.'));
+            // '--' separator so song titles containing dashes don't break the split
+            const sepIdx = noExt.indexOf('--');
+            const artist = sepIdx !== -1 ? noExt.substring(0, sepIdx).trim().replace(/_/g, ' ') : 'Unknown Artist';
+            const title  = sepIdx !== -1 ? noExt.substring(sepIdx + 2).trim().replace(/_/g, ' ') : noExt.replace(/_/g, ' ');
+
+            // Extract embedded album art using node-id3
+            const tags        = NodeID3.read(path.join(MUSIC_DIR, file));
+            let imageUrl      = '/covers/logo.png';
+
+            if (tags.image && tags.image.imageBuffer) {
+                const imageName = `${safeFile}.jpg`;
+                fs.writeFileSync(path.join(COVERS_DIR, imageName), tags.image.imageBuffer);
+                imageUrl = `/covers/${imageName}`;
+                console.log(`🖼️  Cover saved: ${imageName}`);
+            }
+
+            // Avoid duplicates
+            const exists = await Song.findOne({ filename: file });
+            if (exists) {
+                return res.json({ message: 'Already in the vault.', song: exists });
+            }
+
+            // Save to MongoDB — relative paths only, Pi-safe
+            const newSong = new Song({
+                title,
+                artist,
+                filename: file,
+                image: imageUrl,
+                isPrivate: true  // starts private, toggle from library
+            });
+            await newSong.save();
+
+            console.log(`🎵 Saved to DB: ${title} by ${artist}`);
+            res.json({ message: `Downloaded & saved: ${title}`, song: newSong });
+
+        } catch (ingestErr) {
+            console.error('Ingest error:', ingestErr);
+            res.status(500).json({ error: 'Download OK but DB save failed.', detail: ingestErr.message });
+        }
+    });
+});
+
 // ================= PLAYLIST ROUTES =================
 
-// Helper: block guests from playlist actions
 const noGuests = (req, res, next) => {
     if (req.user.role === 'guest') {
-        return res.status(403).json({ error: "Guests can't create playlists. Get a permanent account!" });
+        return res.status(403).json({ error: "Guests can't use playlists. Get a permanent account!" });
     }
     next();
 };
 
-// 📋 GET all playlists for the logged-in user (populated with song data)
 app.get('/api/playlists', auth, noGuests, async (req, res) => {
     try {
-        const playlists = await Playlist.find({ owner: req.user._id })
-            .populate('songs')
-            .sort({ createdAt: -1 });
+        const playlists = await Playlist.find({ owner: req.user._id }).populate('songs').sort({ createdAt: -1 });
         res.json(playlists);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ➕ CREATE a new playlist
 app.post('/api/playlists', auth, noGuests, async (req, res) => {
     try {
         const { name } = req.body;
-        if (!name || !name.trim()) return res.status(400).json({ error: "Playlist name is required." });
-
-        const playlist = new Playlist({
-            name: name.trim(),
-            owner: req.user._id,
-            songs: []
-        });
+        if (!name?.trim()) return res.status(400).json({ error: 'Playlist name required.' });
+        const playlist = new Playlist({ name: name.trim(), owner: req.user._id, songs: [] });
         await playlist.save();
         res.json(playlist);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// 🗑️ DELETE a playlist
 app.delete('/api/playlists/:id', auth, noGuests, async (req, res) => {
     try {
         const playlist = await Playlist.findOne({ _id: req.params.id, owner: req.user._id });
-        if (!playlist) return res.status(404).json({ error: "Playlist not found or not yours." });
-
+        if (!playlist) return res.status(404).json({ error: 'Not found or not yours.' });
         await Playlist.findByIdAndDelete(req.params.id);
-        res.json({ message: "Playlist deleted." });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+        res.json({ message: 'Playlist deleted.' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// 🎵 ADD a song to a playlist
 app.post('/api/playlists/:id/songs', auth, noGuests, async (req, res) => {
     try {
         const { songId } = req.body;
         const playlist = await Playlist.findOne({ _id: req.params.id, owner: req.user._id });
-        if (!playlist) return res.status(404).json({ error: "Playlist not found or not yours." });
-
-        // Prevent duplicates
-        if (playlist.songs.includes(songId)) {
-            return res.status(400).json({ error: "Song already in this playlist." });
-        }
-
+        if (!playlist) return res.status(404).json({ error: 'Not found or not yours.' });
+        if (playlist.songs.includes(songId)) return res.status(400).json({ error: 'Already in playlist.' });
         playlist.songs.push(songId);
         await playlist.save();
+        res.json(await Playlist.findById(playlist._id).populate('songs'));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
-        // Return the updated playlist populated with song data
-        const updated = await Playlist.findById(playlist._id).populate('songs');
-        res.json(updated);
+app.delete('/api/playlists/:id/songs/:songId', auth, noGuests, async (req, res) => {
+    try {
+        const playlist = await Playlist.findOne({ _id: req.params.id, owner: req.user._id });
+        if (!playlist) return res.status(404).json({ error: 'Not found or not yours.' });
+        playlist.songs = playlist.songs.filter(s => s.toString() !== req.params.songId);
+        await playlist.save();
+        res.json(await Playlist.findById(playlist._id).populate('songs'));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});// ⭐ TOGGLE FEATURED (Admin Only)
+app.put('/api/songs/:id/toggle-featured', auth, async (req, res) => {
+    try {
+        if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admins only.' });
+        const song = await Song.findById(req.params.id);
+        if (!song) return res.status(404).json({ error: 'Song not found.' });
+        song.isFeatured = !song.isFeatured;
+        await song.save();
+        res.json(song);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// ❌ REMOVE a song from a playlist
-app.delete('/api/playlists/:id/songs/:songId', auth, noGuests, async (req, res) => {
+// ⭐ GET FEATURED SONGS (public — all users see this)
+app.get('/api/songs/featured', async (req, res) => {
     try {
-        const playlist = await Playlist.findOne({ _id: req.params.id, owner: req.user._id });
-        if (!playlist) return res.status(404).json({ error: "Playlist not found or not yours." });
-
-        playlist.songs = playlist.songs.filter(s => s.toString() !== req.params.songId);
-        await playlist.save();
-
-        const updated = await Playlist.findById(playlist._id).populate('songs');
-        res.json(updated);
+        const songs = await Song.find({ isFeatured: true }).sort({ uploadedAt: -1 });
+        res.json(songs);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

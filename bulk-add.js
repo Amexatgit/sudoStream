@@ -30,11 +30,39 @@ async function ingestSongs() {
                 if (file.toLowerCase().endsWith('.mp3')) {
                     const safeFileName = file.replace(/[\r\n\t]/g, ''); 
                     const nameWithoutExt = file.substring(0, file.lastIndexOf('.'));
-                    const parts = nameWithoutExt.split('-');
-                    
-                    if (parts.length >= 2) {
-                        const artist = parts[0].trim();
-                        const title = parts.slice(1).join('-').trim();
+
+                    // Support both new double-dash (Artist--Title) and old single-dash (Artist-Title) formats
+                    let artist, title;
+                    if (nameWithoutExt.includes('--')) {
+                        // New format from yt-dlp: %(uploader)s--%(title)s
+                        const sepIdx = nameWithoutExt.indexOf('--');
+                        const rawArtist = nameWithoutExt.substring(0, sepIdx).replace(/_/g, ' ').trim();
+                        let rawTitle    = nameWithoutExt.substring(sepIdx + 2).replace(/_/g, ' ').trim();
+
+                        artist = rawArtist || 'Unknown Artist';
+
+                        // Strip artist prefix if YouTube embedded it in the title e.g. "The Weeknd - Try Me"
+                        if (artist !== 'Unknown Artist') {
+                            const escaped = artist.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                            rawTitle = rawTitle.replace(new RegExp(`^${escaped}\\s*[-_]\\s*`, 'i'), '');
+                        }
+                        // Strip YouTube suffixes like (Official Video), [Official Audio], etc.
+                        rawTitle = rawTitle.replace(/\s*[\(\[].*?(official|video|audio|lyrics|hd|hq|mv|music|visualizer).*?[\)\]]/gi, '').trim();
+                        // Strip leftover leading/trailing dashes
+                        title = rawTitle.replace(/^[-\s]+|[-\s]+$/g, '').trim() || nameWithoutExt;
+
+                    } else {
+                        // Old format: Artist-Title (your manually downloaded songs)
+                        const parts = nameWithoutExt.split('-');
+                        artist = parts[0].trim() || 'Unknown Artist';
+                        title  = parts.slice(1).join('-').trim() || nameWithoutExt;
+                    }
+
+                    // Skip files where artist is still empty after all cleanup
+                    if (!artist || !title) {
+                        console.log(`⚠️ Skipped (bad filename): ${file}`);
+                        continue;
+                    }
                         
                         // 🟢 EXTRACTION MAGIC
                         const filePath = path.join(MUSIC_DIR, file);
@@ -75,7 +103,6 @@ async function ingestSongs() {
                                 console.log(`⏭️ Skipped (Already perfect): ${safeFileName}`);
                             }
                         }
-                    }
                 }
             } catch (fileErr) {
                 console.log(`❌ Error processing file ${file}:`, fileErr.message);

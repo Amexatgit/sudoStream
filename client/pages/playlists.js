@@ -31,6 +31,7 @@ export default function Playlists() {
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
     const [playlistQueue, setPlaylistQueue] = useState([]); // songs of currently playing playlist
+    const [isShuffle, setIsShuffle] = useState(false);
 
     // Security check
     useEffect(() => {
@@ -115,6 +116,16 @@ export default function Playlists() {
         }
     };
 
+    // Fisher-Yates shuffle — proper random, not Math.random() sort hack
+    const shuffleArray = (arr) => {
+        const a = [...arr];
+        for (let i = a.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [a[i], a[j]] = [a[j], a[i]];
+        }
+        return a;
+    };
+
     // Play a song within the context of a playlist
     const playSong = (song, queue) => {
         if (queue) setPlaylistQueue(queue);
@@ -128,11 +139,28 @@ export default function Playlists() {
         }
     };
 
+    const playShuffle = (songs) => {
+        const shuffled = shuffleArray(songs);
+        setPlaylistQueue(shuffled);
+        setIsShuffle(true);
+        setCurrentSong(shuffled[0]);
+        setIsPlaying(true);
+        setTimeout(() => audioRef.current && audioRef.current.play(), 100);
+    };
+
     const playNext = () => {
         if (playlistQueue.length === 0) return;
-        const idx = playlistQueue.findIndex(s => s._id === currentSong?._id);
-        const next = playlistQueue[idx + 1] || playlistQueue[0];
-        playSong(next, null);
+        if (isShuffle) {
+            // In shuffle mode — pick a random song that isn't the current one
+            const others = playlistQueue.filter(s => s._id !== currentSong?._id);
+            if (others.length === 0) return;
+            const next = others[Math.floor(Math.random() * others.length)];
+            playSong(next, null);
+        } else {
+            const idx = playlistQueue.findIndex(s => s._id === currentSong?._id);
+            const next = playlistQueue[idx + 1] || playlistQueue[0];
+            playSong(next, null);
+        }
     };
 
     const playPrev = () => {
@@ -227,12 +255,30 @@ export default function Playlists() {
                                 <h2 style={{ color: '#fff', margin: 0 }}>{selectedPlaylist.name}</h2>
                                 <span style={{ color: '#888', fontSize: '14px' }}>{selectedPlaylist.songs?.length || 0} songs</span>
                                 {selectedPlaylist.songs?.length > 0 && (
-                                    <button
-                                        onClick={() => playSong(selectedPlaylist.songs[0], selectedPlaylist.songs)}
-                                        style={s.playAllBtn}
-                                    >
-                                        ▶ Play All
-                                    </button>
+                                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                        <button
+                                            onClick={() => { setIsShuffle(false); playSong(selectedPlaylist.songs[0], selectedPlaylist.songs); }}
+                                            style={s.playAllBtn}
+                                        >
+                                            ▶ Play All
+                                        </button>
+                                        <button
+                                            onClick={() => playShuffle(selectedPlaylist.songs)}
+                                            style={{
+                                                ...s.playAllBtn,
+                                                backgroundColor: isShuffle ? '#1DB954' : 'transparent',
+                                                color: isShuffle ? '#000' : '#1DB954',
+                                                border: '1px solid #1DB954',
+                                                display: 'flex', alignItems: 'center', gap: '6px'
+                                            }}
+                                        >
+                                            {/* Shuffle SVG icon */}
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                                <path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/>
+                                            </svg>
+                                            Shuffle
+                                        </button>
+                                    </div>
                                 )}
                             </div>
 
@@ -293,6 +339,20 @@ export default function Playlists() {
                         </div>
                     </div>
                     <div style={s.controls}>
+                        <button
+                            onClick={() => setIsShuffle(!isShuffle)}
+                            style={{
+                                ...s.ctrlBtn,
+                                color: isShuffle ? '#1DB954' : '#666',
+                                position: 'relative'
+                            }}
+                            title={isShuffle ? 'Shuffle On' : 'Shuffle Off'}
+                        >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/>
+                            </svg>
+                            {isShuffle && <span style={{ position: 'absolute', bottom: '-2px', left: '50%', transform: 'translateX(-50%)', width: '4px', height: '4px', borderRadius: '50%', backgroundColor: '#1DB954' }} />}
+                        </button>
                         <button style={s.ctrlBtn} onClick={playPrev}><PrevIcon /></button>
                         <button style={s.playBtn} onClick={() => {
                             if (isPlaying) { audioRef.current.pause(); setIsPlaying(false); }

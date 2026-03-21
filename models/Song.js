@@ -8,7 +8,8 @@ const songSchema = new mongoose.Schema({
     uploadedAt: { type: Date, default: Date.now },
     
     // 🔒 NEW: The Secret Flag
-    isPrivate: { type: Boolean, default: false } 
+    isPrivate: { type: Boolean, default: false } ,
+   isFeatured: { type: Boolean, default: false }
 });
 
 module.exports = mongoose.model('Song', songSchema);

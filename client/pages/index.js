@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Link from 'next/link'; 
 
 // --- ICONS ---
@@ -36,6 +36,17 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
 
+  // 🎵 PLAYLIST STATE
+  const [playlists, setPlaylists] = useState([]);
+  const [showPlaylistMenu, setShowPlaylistMenu] = useState(null);
+
+  // 🏠 DISCOVERY VIEW STATE
+  const [view, setView] = useState('home'); // 'home' | 'vault' | 'artist'
+  const [selectedArtist, setSelectedArtist] = useState(null);
+
+  // ⭐ FEATURED / HOT RIGHT NOW
+  const [featuredSongs, setFeaturedSongs] = useState([]);
+
   const API_URL = process.env.NEXT_PUBLIC_API_URL; 
   const audioRef = useRef(null);
 
@@ -66,6 +77,22 @@ export default function Home() {
           console.error("Failed to fetch:", err);
           setSongs([]); // Fallback
       });
+
+    // Fetch playlists for logged-in non-guest users
+    if (token && localStorage.getItem('role') !== 'guest') {
+        fetch(`${API_URL}/api/playlists`, {
+            headers: { 'auth-token': token }
+        })
+        .then(res => res.json())
+        .then(data => { if (Array.isArray(data)) setPlaylists(data); })
+        .catch(() => {});
+    }
+
+    // ⭐ Fetch featured songs — visible to everyone including guests
+    fetch(`${API_URL}/api/songs/featured`)
+        .then(res => res.json())
+        .then(data => { if (Array.isArray(data)) setFeaturedSongs(data); })
+        .catch(() => {});
   }, [API_URL]);
 
   // ⏳ GUEST TIMER ENFORCER
@@ -129,13 +156,34 @@ export default function Home() {
             method: 'PUT',
             headers: { 'auth-token': token }
         });
-        
         if (res.ok) {
             const updatedSong = await res.json();
             setSongs(songs.map(s => s._id === song._id ? updatedSong : s));
         }
     } catch (err) {
         console.error("Failed to toggle privacy:", err);
+    }
+  };
+
+  const toggleFeatured = async (song, e) => {
+    e.stopPropagation();
+    const token = localStorage.getItem('token');
+    try {
+        const res = await fetch(`${API_URL}/api/songs/${song._id}/toggle-featured`, {
+            method: 'PUT',
+            headers: { 'auth-token': token }
+        });
+        if (res.ok) {
+            const updatedSong = await res.json();
+            setSongs(songs.map(s => s._id === song._id ? updatedSong : s));
+            if (updatedSong.isFeatured) {
+                setFeaturedSongs(prev => [updatedSong, ...prev.filter(s => s._id !== updatedSong._id)]);
+            } else {
+                setFeaturedSongs(prev => prev.filter(s => s._id !== updatedSong._id));
+            }
+        }
+    } catch (err) {
+        console.error("Failed to toggle featured:", err);
     }
   };
 
@@ -165,21 +213,16 @@ export default function Home() {
     }
   };
 
-  const playSong = (song) => {
+  const playSong = useCallback((song) => {
     if (currentSong?._id === song._id) {
-      if (isPlaying) {
-        audioRef.current.pause();
-        setIsPlaying(false);
-      } else {
-        audioRef.current.play();
-        setIsPlaying(true);
-      }
+      if (isPlaying) { audioRef.current.pause(); setIsPlaying(false); }
+      else { audioRef.current.play(); setIsPlaying(true); }
     } else {
       setCurrentSong(song);
       setIsPlaying(true);
       setTimeout(() => audioRef.current && audioRef.current.play(), 100);
     }
-  };
+  }, [currentSong, isPlaying]);
 
   const playNext = () => {
     const visibleSongs = isLoggedIn ? songs : songs.filter(s => !s.isPrivate);
@@ -195,18 +238,50 @@ export default function Home() {
     setCurrentTime(newTime);
   };
 
-  const privateSongs = songs.filter(song => song.isPrivate);
-  const publicSongs = songs.filter(song => !song.isPrivate);
+  const addToPlaylist = async (playlistId, songId, e) => {
+    e.stopPropagation();
+    const token = localStorage.getItem('token');
+    try {
+        const res = await fetch(`${API_URL}/api/playlists/${playlistId}/songs`, {
+            method: 'POST',
+            headers: { 'auth-token': token, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ songId })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            setPlaylists(playlists.map(p => p._id === playlistId ? data : p));
+        } else {
+            alert(data.error || 'Failed to add song.');
+        }
+    } catch (err) {
+        console.error(err);
+    }
+    setShowPlaylistMenu(null);
+  };
 
-  // 🔍 SEARCH FILTER
-  const filterSongs = (list) => {
+  // 🎨 DERIVED DATA — memoized, only recomputes when dependencies change
+  const artists = useMemo(() => Object.values(
+    songs.reduce((acc, song) => {
+      if (!acc[song.artist]) acc[song.artist] = { name: song.artist, image: song.image, count: 0 };
+      acc[song.artist].count++;
+      return acc;
+    }, {})
+  ).sort((a, b) => b.count - a.count), [songs]);
+
+  const recentSongs  = useMemo(() => [...songs].slice(0, 12), [songs]);
+  const artistSongs  = useMemo(() => selectedArtist ? songs.filter(s => s.artist === selectedArtist) : [], [songs, selectedArtist]);
+  const privateSongs = useMemo(() => songs.filter(s => s.isPrivate), [songs]);
+  const publicSongs  = useMemo(() => songs.filter(s => !s.isPrivate), [songs]);
+
+  // 🔍 SEARCH FILTER — memoized on searchQuery
+  const filterSongs = useCallback((list) => {
     if (!searchQuery.trim()) return list;
     const q = searchQuery.toLowerCase();
     return list.filter(s =>
       s.title?.toLowerCase().includes(q) ||
       s.artist?.toLowerCase().includes(q)
     );
-  };
+  }, [searchQuery]);
 
   const renderSongRow = (song) => (
     <div 
@@ -229,14 +304,28 @@ export default function Home() {
           {song.title}
         </strong>
         <div style={styles.artist}>
-          {song.artist} 
-          {song.isPrivate && <span style={{marginLeft: '8px', display: 'inline-flex', alignItems: 'center'}} title="Private Song"><LockIcon /></span>}
+          {song.artist}
         </div>
       </div>
       <span style={{display: 'flex', alignItems: 'center', gap: '15px'}}>
         
         {isAdmin && (
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                {/* ⭐ FEATURE TOGGLE */}
+                <button
+                    onClick={(e) => toggleFeatured(song, e)}
+                    style={{
+                        padding: '4px 10px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer',
+                        backgroundColor: song.isFeatured ? '#f59e0b' : 'transparent',
+                        color: song.isFeatured ? '#000' : '#f59e0b',
+                        border: '1px solid #f59e0b',
+                        borderRadius: '12px', textTransform: 'uppercase', transition: '0.2s'
+                    }}
+                    title={song.isFeatured ? 'Remove from Hot Right Now' : 'Add to Hot Right Now'}
+                >
+                    {song.isFeatured ? '⭐ Featured' : '☆ Feature'}
+                </button>
+
                 <button 
                     onClick={(e) => togglePrivacy(song, e)}
                     style={{
@@ -262,6 +351,53 @@ export default function Home() {
         )}
 
         {currentSong?._id === song._id && isPlaying ? <PauseIcon color="#1DB954" size={20} /> : <PlayIcon color="#fff" size={20} />}
+
+        {/* ➕ ADD TO PLAYLIST — logged-in non-guest users only */}
+        {isLoggedIn && localStorage.getItem('role') !== 'guest' && (
+            <div style={{ position: 'relative' }}>
+                <button
+                    onClick={(e) => { e.stopPropagation(); setShowPlaylistMenu(showPlaylistMenu === song._id ? null : song._id); }}
+                    style={{
+                        background: 'none', border: '1px solid #555', color: '#ccc',
+                        borderRadius: '50%', width: '28px', height: '28px',
+                        cursor: 'pointer', fontSize: '18px', display: 'flex',
+                        alignItems: 'center', justifyContent: 'center', lineHeight: 1
+                    }}
+                    title="Add to Playlist"
+                >+</button>
+
+                {showPlaylistMenu === song._id && (
+                    <div style={{
+                        position: 'absolute', right: 0, bottom: '34px',
+                        backgroundColor: '#282828', border: '1px solid #444',
+                        borderRadius: '8px', minWidth: '180px', zIndex: 100,
+                        boxShadow: '0 4px 20px rgba(0,0,0,0.6)', padding: '8px 0'
+                    }}>
+                        <p style={{ color: '#888', fontSize: '11px', padding: '4px 14px', margin: 0, textTransform: 'uppercase', letterSpacing: '1px' }}>
+                            Add to playlist
+                        </p>
+                        {playlists.length === 0 ? (
+                            <p style={{ color: '#555', fontSize: '13px', padding: '8px 14px', margin: 0 }}>
+                                No playlists yet.<br/>
+                                <a href="/playlists" style={{ color: '#1DB954' }}>Create one</a>
+                            </p>
+                        ) : (
+                            playlists.map(pl => (
+                                <div
+                                    key={pl._id}
+                                    onClick={(e) => addToPlaylist(pl._id, song._id, e)}
+                                    style={{ padding: '8px 14px', cursor: 'pointer', color: '#fff', fontSize: '14px' }}
+                                    onMouseEnter={e => e.currentTarget.style.backgroundColor = '#3e3e3e'}
+                                    onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                                >
+                                    🎵 {pl.name}
+                                </div>
+                            ))
+                        )}
+                    </div>
+                )}
+            </div>
+        )}
       </span>
     </div>
   );
@@ -400,7 +536,7 @@ export default function Home() {
 
           {/* Tagline */}
           <p style={{
-            margin: '0 0 28px 0',
+            margin: '0 0 12px 0',
             color: '#666',
             fontSize: '13px',
             letterSpacing: '3px',
@@ -408,6 +544,18 @@ export default function Home() {
           }}>
             Because music shouldn't have a monthly fee.
           </p>
+
+          {/* Subtle song count */}
+          {songs.length > 0 && (
+            <p style={{
+              margin: '0 0 20px 0',
+              color: '#3a3a3a',
+              fontSize: '12px',
+              letterSpacing: '1.5px',
+            }}>
+              {songs.length} songs in the vault
+            </p>
+          )}
 
           {/* Glassmorphism nav pill */}
           <div style={{
@@ -481,58 +629,281 @@ export default function Home() {
           </div>
         </div>
 
-        {/* SONG LISTS */}
-        <div style={styles.list}>
-          
+        {/* ===================== DISCOVERY / VAULT CONTENT ===================== */}
+        <div style={{ padding: '0 16px 20px', maxWidth: '1100px', margin: '0 auto' }}>
+
+          {/* VIEW TOGGLE TABS — logged in users only */}
           {isLoggedIn && (
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '28px', borderBottom: '1px solid #222', paddingBottom: '12px', flexWrap: 'wrap' }}>
+              {['home', 'vault'].map(v => (
+                <button key={v} onClick={() => { setView(v); setSelectedArtist(null); }} style={{
+                  padding: '7px 18px', borderRadius: '20px', border: 'none',
+                  backgroundColor: view === v && !selectedArtist ? '#1DB954' : 'rgba(255,255,255,0.07)',
+                  color: view === v && !selectedArtist ? '#000' : '#aaa',
+                  fontWeight: view === v && !selectedArtist ? 'bold' : 'normal',
+                  cursor: 'pointer', fontSize: '13px', transition: '0.2s'
+                }}>
+                  {v === 'home' ? '✦ Discover' : '☰ Full Vault'}
+                </button>
+              ))}
+              {selectedArtist && (
+                <button onClick={() => { setView('home'); setSelectedArtist(null); }} style={{
+                  padding: '7px 18px', borderRadius: '20px',
+                  border: '1px solid rgba(29,185,84,0.4)',
+                  backgroundColor: 'rgba(29,185,84,0.1)', color: '#1DB954',
+                  cursor: 'pointer', fontSize: '13px'
+                }}>
+                  ← Back
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* ══════════ DISCOVER HOME VIEW ══════════ */}
+          {view === 'home' && isLoggedIn && !selectedArtist && (
             <>
-                {filterSongs(privateSongs).length > 0 ? (
-                    <div>
-                        <h2 style={styles.sectionTitle}>🏴‍☠️ Private Collection</h2>
-                        {filterSongs(privateSongs).map(renderSongRow)}
-                    </div>
-                ) : (
-                    <p style={{textAlign: 'center', color: '#555', marginTop: '40px'}}>
-                        {searchQuery ? `No results for "${searchQuery}"` : 'No private songs yet.'}
-                    </p>
-                )}
+              {/* ⭐ HOT RIGHT NOW — curator picked, visible to all */}
+              {featuredSongs.length > 0 && (
+                <div style={{ marginBottom: '44px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                    <h2 style={{ ...styles.sectionTitle, margin: 0, borderBottom: 'none' }}>⭐ streaming Hot on sudo Right Now</h2>
+                    <span style={{
+                      padding: '2px 10px', borderRadius: '20px', fontSize: '10px',
+                      fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px',
+                      backgroundColor: 'rgba(245,158,11,0.15)',
+                      border: '1px solid rgba(245,158,11,0.4)',
+                      color: '#f59e0b'
+                    }}>Trending Live</span>
+                  </div>
+
+                  {/* Horizontal scroll strip */}
+                  <div style={{
+                    display: 'flex', gap: '14px',
+                    overflowX: 'auto', paddingBottom: '10px',
+                    scrollbarWidth: 'none', msOverflowStyle: 'none'
+                  }}>
+                    {featuredSongs.map((song, idx) => (
+                      <div
+                        key={song._id}
+                        onClick={() => playSong(song)}
+                        style={{
+                          flexShrink: 0, width: '160px', cursor: 'pointer',
+                          borderRadius: '12px', overflow: 'hidden',
+                          backgroundColor: currentSong?._id === song._id ? 'rgba(245,158,11,0.12)' : 'rgba(255,255,255,0.04)',
+                          border: `1px solid ${currentSong?._id === song._id ? '#f59e0b' : 'rgba(255,255,255,0.07)'}`,
+                          transition: 'all 0.2s', position: 'relative'
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-3px)'}
+                        onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+                      >
+                        {/* Rank badge */}
+                        <div style={{
+                          position: 'absolute', top: '8px', left: '8px', zIndex: 2,
+                          width: '22px', height: '22px', borderRadius: '50%',
+                          backgroundColor: idx < 3 ? '#f59e0b' : 'rgba(0,0,0,0.6)',
+                          color: idx < 3 ? '#000' : '#fff',
+                          fontSize: '11px', fontWeight: 'bold',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center'
+                        }}>
+                          {idx + 1}
+                        </div>
+
+                        <div style={{ position: 'relative' }}>
+                          <img
+                            src={song.image?.startsWith('http') ? song.image : `${API_URL}${song.image}`}
+                            style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', display: 'block' }}
+                            alt={song.title}
+                          />
+                          {/* Play overlay */}
+                          <div style={{
+                            position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            opacity: currentSong?._id === song._id ? 1 : 0, transition: '0.2s'
+                          }}>
+                            {currentSong?._id === song._id && isPlaying
+                              ? <PauseIcon color="#f59e0b" size={28} />
+                              : <PlayIcon color="#fff" size={28} />}
+                          </div>
+                        </div>
+
+                        <div style={{ padding: '10px 10px 12px' }}>
+                          <div style={{
+                            color: currentSong?._id === song._id ? '#f59e0b' : '#fff',
+                            fontSize: '12px', fontWeight: 'bold',
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                          }}>{song.title}</div>
+                          <div style={{
+                            color: '#777', fontSize: '11px', marginTop: '2px',
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                          }}>{song.artist}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* RECENTLY ADDED FLASHCARDS */}
+              {recentSongs.length > 0 && (
+                <div style={{ marginBottom: '44px' }}>
+                  <h2 style={styles.sectionTitle}>🔥 Recently Added</h2>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '14px' }}>
+                    {recentSongs.map(song => (
+                      <div
+                        key={song._id}
+                        onClick={() => playSong(song)}
+                        style={{
+                          backgroundColor: currentSong?._id === song._id ? 'rgba(29,185,84,0.12)' : 'rgba(255,255,255,0.04)',
+                          border: `1px solid ${currentSong?._id === song._id ? '#1DB954' : 'rgba(255,255,255,0.06)'}`,
+                          borderRadius: '10px', cursor: 'pointer', overflow: 'hidden',
+                          transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-3px)'}
+                        onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+                      >
+                        <div style={{ position: 'relative' }}>
+                          <img
+                            src={song.image?.startsWith('http') ? song.image : `${API_URL}${song.image}`}
+                            style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', display: 'block' }}
+                            alt={song.title}
+                          />
+                          <div style={{
+                            position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            opacity: currentSong?._id === song._id ? 1 : 0, transition: '0.2s'
+                          }}>
+                            {currentSong?._id === song._id && isPlaying
+                              ? <PauseIcon color="#1DB954" size={28} />
+                              : <PlayIcon color="#fff" size={28} />}
+                          </div>
+                        </div>
+                        <div style={{ padding: '9px 10px 11px' }}>
+                          <div style={{ color: currentSong?._id === song._id ? '#1DB954' : '#fff', fontSize: '12px', fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{song.title}</div>
+                          <div style={{ color: '#777', fontSize: '11px', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{song.artist}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ARTISTS GRID */}
+              {artists.length > 0 && (
+                <div style={{ marginBottom: '40px' }}>
+                  <h2 style={styles.sectionTitle}>🎤 Artists — {artists.length} in your vault</h2>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '14px' }}>
+                    {artists.map(artist => (
+                      <div
+                        key={artist.name}
+                        onClick={() => { setSelectedArtist(artist.name); setView('artist'); }}
+                        style={{
+                          textAlign: 'center', cursor: 'pointer', padding: '18px 10px 14px',
+                          backgroundColor: 'rgba(255,255,255,0.04)',
+                          border: '1px solid rgba(255,255,255,0.06)',
+                          borderRadius: '14px', transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'rgba(29,185,84,0.08)'; e.currentTarget.style.borderColor = 'rgba(29,185,84,0.3)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'; e.currentTarget.style.transform = 'translateY(0)'; }}
+                      >
+                        <img
+                          src={artist.image?.startsWith('http') ? artist.image : `${API_URL}${artist.image}`}
+                          style={{ width: '76px', height: '76px', borderRadius: '50%', objectFit: 'cover', marginBottom: '10px', border: '2px solid rgba(29,185,84,0.35)', boxShadow: '0 4px 16px rgba(0,0,0,0.5)' }}
+                          alt={artist.name}
+                        />
+                        <div style={{ color: '#fff', fontSize: '12px', fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{artist.name}</div>
+                        <div style={{ color: '#555', fontSize: '11px', marginTop: '3px' }}>{artist.count} songs</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </>
           )}
 
-          {!isLoggedIn && (
-             <div>
-               <h2 style={styles.sectionTitle}>Public Library</h2>
-               <p style={{color: '#b3b3b3', fontSize: '14px', lineHeight: '1.6'}}>
-                    This section contains Non copyright songs only. You need to login to access copyright songs, Create personalized Playlists, Stream Endless premium music and many more Features 
-                </p>
-               {filterSongs(publicSongs).length > 0
-                 ? filterSongs(publicSongs).map(renderSongRow)
-                 : <p style={{textAlign: 'center', color: '#555'}}>
-                     {searchQuery ? `No results for "${searchQuery}"` : 'No public songs found.'}
-                   </p>}
-             </div>
+          {/* ══════════ ARTIST VIEW ══════════ */}
+          {view === 'artist' && selectedArtist && (
+            <div>
+              {/* Artist hero banner */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '22px', marginBottom: '28px',
+                padding: '22px', borderRadius: '16px',
+                background: 'linear-gradient(135deg, rgba(29,185,84,0.12) 0%, rgba(255,255,255,0.03) 100%)',
+                border: '1px solid rgba(29,185,84,0.2)'
+              }}>
+                <img
+                  src={artistSongs[0]?.image?.startsWith('http') ? artistSongs[0]?.image : `${API_URL}${artistSongs[0]?.image}`}
+                  style={{ width: '88px', height: '88px', borderRadius: '50%', objectFit: 'cover', border: '3px solid #1DB954', boxShadow: '0 0 24px rgba(29,185,84,0.4)', flexShrink: 0 }}
+                  alt={selectedArtist}
+                />
+                <div style={{ flexGrow: 1 }}>
+                  <div style={{ color: '#1DB954', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '5px' }}>Artist</div>
+                  <div style={{ color: '#fff', fontSize: '26px', fontWeight: '900', letterSpacing: '-0.5px' }}>{selectedArtist}</div>
+                  <div style={{ color: '#666', fontSize: '13px', marginTop: '4px' }}>{artistSongs.length} songs in your vault</div>
+                </div>
+                <button
+                  onClick={() => playSong(artistSongs[0])}
+                  style={{ padding: '10px 24px', backgroundColor: '#1DB954', border: 'none', color: '#000', borderRadius: '25px', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px', flexShrink: 0 }}
+                >
+                  ▶ Play All
+                </button>
+              </div>
+              <h2 style={styles.sectionTitle}>Songs</h2>
+              {filterSongs(artistSongs).map(renderSongRow)}
+            </div>
           )}
 
+          {/* ══════════ FULL VAULT VIEW ══════════ */}
+          {view === 'vault' && isLoggedIn && (
+            <div>
+              {filterSongs(privateSongs).length > 0 && (
+                <div style={{ marginBottom: '30px' }}>
+                  <h2 style={styles.sectionTitle}>🏴‍☠️ Private — {filterSongs(privateSongs).length} songs</h2>
+                  {filterSongs(privateSongs).map(renderSongRow)}
+                </div>
+              )}
+              {filterSongs(publicSongs).length > 0 && (
+                <div>
+                  <h2 style={styles.sectionTitle}>🌍 Public — {filterSongs(publicSongs).length} songs</h2>
+                  {filterSongs(publicSongs).map(renderSongRow)}
+                </div>
+              )}
+              {filterSongs(privateSongs).length === 0 && filterSongs(publicSongs).length === 0 && (
+                <p style={{ textAlign: 'center', color: '#555', marginTop: '60px' }}>
+                  {searchQuery ? `No results for "${searchQuery}"` : 'Vault is empty.'}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* NOT LOGGED IN */}
           {!isLoggedIn && (
-            <div style={styles.aboutSection}>
-                <h3 style={{color: '#fff', borderBottom: '1px solid #333', paddingBottom: '10px'}}>About SudoStream</h3>
-                <p style={{color: '#b3b3b3', fontSize: '14px', lineHeight: '1.6'}}>
-                    A End to End self-hosted music platform which streams music from a physical server at my home lab directly on the internet, Free of cost. This enabled me to access my songs anytime anywhere in the world.
+            <div>
+              <h2 style={styles.sectionTitle}>Public Library</h2>
+              <p style={{ color: '#b3b3b3', fontSize: '14px', lineHeight: '1.6', marginBottom: '16px' }}>
+                Non-copyright songs only. Login to access the full vault, create playlists, and stream 800+ songs.
+              </p>
+              {filterSongs(publicSongs).length > 0
+                ? filterSongs(publicSongs).map(renderSongRow)
+                : <p style={{ textAlign: 'center', color: '#555' }}>
+                    {searchQuery ? `No results for "${searchQuery}"` : 'No public songs found.'}
+                  </p>}
+              <div style={styles.aboutSection}>
+                <h3 style={{ color: '#fff', borderBottom: '1px solid #333', paddingBottom: '10px' }}>About SudoStream</h3>
+                <p style={{ color: '#b3b3b3', fontSize: '14px', lineHeight: '1.6' }}>
+                  A self-hosted music platform streaming from a home lab server. Access your entire library anywhere in the world, free forever.
                 </p>
                 <div style={styles.diagramContainer}>
-                    <div style={styles.node}><span style={{fontSize: '24px'}}>🍓</span><span style={styles.nodeLabel}>RaspberryPi Server (at my home)</span></div>
-                    <div style={styles.arrow}>----------▶</div>
-                    <div style={styles.node}><span style={{fontSize: '24px'}}>☁️</span><span style={styles.nodeLabel}>Internet (cloud Tunneling)</span></div>
-                    <div style={styles.arrow}>----------▶</div>
-                    <div style={styles.node}><span style={{fontSize: '24px'}}>📱</span><span style={styles.nodeLabel}>Serving your Device as a client</span></div>
+                  <div style={styles.node}><span style={{ fontSize: '24px' }}>🍓</span><span style={styles.nodeLabel}>RaspberryPi Server</span></div>
+                  <div style={styles.arrow}>──────▶</div>
+                  <div style={styles.node}><span style={{ fontSize: '24px' }}>☁️</span><span style={styles.nodeLabel}>Cloudflare Tunnel</span></div>
+                  <div style={styles.arrow}>──────▶</div>
+                  <div style={styles.node}><span style={{ fontSize: '24px' }}>📱</span><span style={styles.nodeLabel}>Your Device</span></div>
                 </div>
                 <div style={styles.socialLinks}>
-                    <a href="https://github.com/Amexatgit" target="_blank" rel="noreferrer" style={styles.socialBtn}><GithubIcon /> GitHub</a>
-                    <a href="https://www.linkedin.com/in/ameyatlinked/" target="_blank" rel="noreferrer" style={styles.socialBtn}><LinkedinIcon /> Linkedin</a>
+                  <a href="https://github.com/Amexatgit" target="_blank" rel="noreferrer" style={styles.socialBtn}><GithubIcon /> GitHub</a>
+                  <a href="https://www.linkedin.com/in/ameyatlinked/" target="_blank" rel="noreferrer" style={styles.socialBtn}><LinkedinIcon /> LinkedIn</a>
                 </div>
-               <p style={{color: '#555', fontSize: '12px', marginTop: '20px'}}>
-                    Built by Amex with Next.js, Node.js, MongoDB 
-                </p>
+                <p style={{ color: '#555', fontSize: '12px', marginTop: '20px' }}>Built by Amex · Next.js · Node.js · MongoDB</p>
+              </div>
             </div>
           )}
 
@@ -630,7 +1001,7 @@ const styles = {
   sectionTitle: { fontSize: '18px', color: '#b3b3b3', margin: '20px 0 10px', paddingLeft: '5px', textTransform: 'uppercase', letterSpacing: '1px', borderBottom: '1px solid #333', paddingBottom: '5px' },
   navBtn: { padding: '5px 12px', backgroundColor: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', transition: '0.2s' },
   pillBtn: { padding: '5px 12px', backgroundColor: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', color: 'white', borderRadius: '20px', cursor: 'pointer', fontSize: '13px', transition: '0.2s' },
-  list: { padding: '10px', maxWidth: '800px', margin: '0 auto' },
+  list: { padding: '10px', maxWidth: '1100px', margin: '0 auto' },
   songItem: { display: 'flex', alignItems: 'center', padding: '10px', marginBottom: '8px', borderRadius: '8px', cursor: 'pointer', transition: '0.2s' },
   thumbnail: { width: '50px', height: '50px', borderRadius: '4px', marginRight: '15px', objectFit: 'cover' },
   songInfo: { flexGrow: 1 },
