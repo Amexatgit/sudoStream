@@ -19,6 +19,7 @@ const bcrypt = require('bcryptjs');
 const Song = require('./models/Song');
 const User = require('./models/User');
 const Playlist = require('./models/Playlist');
+const SongRequest = require('./models/SongRequest');
 const { exec } = require('child_process');
 const NodeID3 = require('node-id3');
 
@@ -490,6 +491,72 @@ app.get('/api/songs/featured', async (req, res) => {
     try {
         const songs = await Song.find({ isFeatured: true }).sort({ uploadedAt: -1 });
         res.json(songs);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ================= SONG REQUEST ROUTES =================
+
+// 📥 SUBMIT A REQUEST (logged-in users only, no guests)
+app.post('/api/requests', auth, async (req, res) => {
+    if (req.user.role === 'guest') {
+        return res.status(403).json({ error: "Guests can't submit requests. Get a permanent account!" });
+    }
+
+    const { type, name } = req.body;
+
+    if (!type || !['song', 'artist'].includes(type)) {
+        return res.status(400).json({ error: 'Type must be "song" or "artist".' });
+    }
+    if (!name || !name.trim()) {
+        return res.status(400).json({ error: 'Please enter a name.' });
+    }
+
+    try {
+        const request = new SongRequest({
+            type,
+            name: name.trim(),
+            requestedBy: req.user._id
+        });
+        await request.save();
+        res.json({ message: 'Request received! We will add it as soon as possible. 🎵' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 📋 GET ALL REQUESTS (Admin only — to view from admin panel)
+app.get('/api/requests', auth, async (req, res) => {
+    if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Admins only.' });
+    }
+    try {
+        const requests = await SongRequest.find()
+            .sort({ createdAt: -1 });
+        res.json(requests);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ✅ UPDATE REQUEST STATUS (Admin only)
+app.put('/api/requests/:id', auth, async (req, res) => {
+    if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Admins only.' });
+    }
+    const { status } = req.body;
+    if (!['pending', 'added', 'rejected'].includes(status)) {
+        return res.status(400).json({ error: 'Invalid status.' });
+    }
+    try {
+        const request = await SongRequest.findByIdAndUpdate(
+            req.params.id,
+            { status },
+            { new: true }
+        );
+        if (!request) return res.status(404).json({ error: 'Request not found.' });
+        res.json(request);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

@@ -47,6 +47,13 @@ export default function Home() {
   // ⭐ FEATURED / HOT RIGHT NOW
   const [featuredSongs, setFeaturedSongs] = useState([]);
 
+  // 🎵 SONG REQUEST STATE
+  const [showRequestDialog, setShowRequestDialog] = useState(false);
+  const [requestType, setRequestType] = useState('song');
+  const [requestName, setRequestName] = useState('');
+  const [requestStatus, setRequestStatus] = useState('idle'); // idle | loading | success | error
+  const [requestMsg, setRequestMsg] = useState('');
+
   const API_URL = process.env.NEXT_PUBLIC_API_URL; 
   const audioRef = useRef(null);
 
@@ -210,6 +217,32 @@ export default function Home() {
         }
     } catch (err) {
         console.error("Failed to delete:", err);
+    }
+  };
+
+  const submitRequest = async () => {
+    if (!requestName.trim()) return;
+    setRequestStatus('loading');
+    const token = localStorage.getItem('token');
+    try {
+        const res = await fetch(`${API_URL}/api/requests`, {
+            method: 'POST',
+            headers: { 'auth-token': token, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: requestType, name: requestName.trim() })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            setRequestStatus('success');
+            setRequestMsg(data.message);
+            setRequestName('');
+            setTimeout(() => { setShowRequestDialog(false); setRequestStatus('idle'); setRequestMsg(''); }, 3000);
+        } else {
+            setRequestStatus('error');
+            setRequestMsg(data.error || 'Something went wrong.');
+        }
+    } catch (err) {
+        setRequestStatus('error');
+        setRequestMsg('Could not reach server.');
     }
   };
 
@@ -416,6 +449,137 @@ export default function Home() {
 
       {/* CONTENT */}
       <div style={{ position: 'relative', zIndex: 1 }}>
+
+        {/* 🎵 FLOATING REQUEST BUTTON — bottom right corner */}
+        {isLoggedIn && localStorage.getItem('role') !== 'guest' && (
+          <button
+            onClick={() => setShowRequestDialog(true)}
+            title="Request a song or artist"
+            style={{
+              position: 'fixed', bottom: currentSong ? '110px' : '24px', right: '20px',
+              zIndex: 50, width: '48px', height: '48px', borderRadius: '50%',
+              backgroundColor: '#1DB954', border: 'none', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 4px 20px rgba(29,185,84,0.5)',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.1)'}
+            onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="#000">
+              <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/>
+            </svg>
+          </button>
+        )}
+
+        {/* 🎵 REQUEST DIALOG */}
+        {showRequestDialog && (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 200,
+            backgroundColor: 'rgba(0,0,0,0.7)',
+            backdropFilter: 'blur(6px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '20px'
+          }}
+            onClick={(e) => { if (e.target === e.currentTarget) { setShowRequestDialog(false); setRequestStatus('idle'); setRequestName(''); }}}
+          >
+            <div style={{
+              backgroundColor: '#1e1e1e', borderRadius: '16px', padding: '28px',
+              width: '100%', maxWidth: '420px',
+              border: '1px solid rgba(255,255,255,0.1)',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.6)'
+            }}>
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+                <div>
+                  <h2 style={{ margin: '0 0 4px 0', color: '#fff', fontSize: '20px', fontWeight: '800' }}>
+                    🎵 Request a Song
+                  </h2>
+                  <p style={{ margin: 0, color: '#666', fontSize: '13px' }}>
+                    Can't find what you're looking for? I can't make each and every song available Lol :) But i'll definitely add what you wish to see here, 😋 so just Let me know!!
+                  </p>
+                </div>
+                <button onClick={() => { setShowRequestDialog(false); setRequestStatus('idle'); setRequestName(''); }}
+                  style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: '20px', lineHeight: 1, padding: '0 0 0 10px' }}>✕</button>
+              </div>
+
+              {requestStatus !== 'success' ? (
+                <>
+                  {/* Type selector */}
+                  <p style={{ color: '#888', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '10px' }}>What do you want to add?</p>
+                  <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+                    {['song', 'artist'].map(t => (
+                      <button
+                        key={t}
+                        onClick={() => setRequestType(t)}
+                        style={{
+                          flex: 1, padding: '10px', borderRadius: '10px', cursor: 'pointer',
+                          border: `1px solid ${requestType === t ? '#1DB954' : 'rgba(255,255,255,0.1)'}`,
+                          backgroundColor: requestType === t ? 'rgba(29,185,84,0.15)' : 'rgba(255,255,255,0.04)',
+                          color: requestType === t ? '#1DB954' : '#888',
+                          fontWeight: requestType === t ? 'bold' : 'normal',
+                          fontSize: '14px', transition: '0.15s'
+                        }}
+                      >
+                        {t === 'song' ? '🎵 A Song' : '🎤 An Artist'}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Name input */}
+                  <p style={{ color: '#888', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px' }}>
+                    {requestType === 'song' ? 'Song name' : 'Artist name'}
+                  </p>
+                  <input
+                    autoFocus
+                    type="text"
+                    placeholder={requestType === 'song' ? 'e.g. Blinding Lights' : 'e.g. The Weeknd'}
+                    value={requestName}
+                    onChange={e => setRequestName(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && submitRequest()}
+                    style={{
+                      width: '100%', padding: '12px 14px', borderRadius: '10px',
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      backgroundColor: '#2a2a2a', color: '#fff', fontSize: '15px',
+                      outline: 'none', boxSizing: 'border-box', marginBottom: '8px'
+                    }}
+                  />
+
+                  {requestStatus === 'error' && (
+                    <p style={{ color: '#ff6b6b', fontSize: '13px', margin: '0 0 12px' }}>❌ {requestMsg}</p>
+                  )}
+
+                  <button
+                    onClick={submitRequest}
+                    disabled={!requestName.trim() || requestStatus === 'loading'}
+                    style={{
+                      width: '100%', padding: '13px', borderRadius: '25px', border: 'none',
+                      backgroundColor: (!requestName.trim() || requestStatus === 'loading') ? '#333' : '#1DB954',
+                      color: (!requestName.trim() || requestStatus === 'loading') ? '#666' : '#000',
+                      fontWeight: 'bold', fontSize: '15px', cursor: !requestName.trim() ? 'not-allowed' : 'pointer',
+                      marginTop: '8px', transition: '0.2s'
+                    }}
+                  >
+                    {requestStatus === 'loading' ? 'Sending...' : 'Submit Request'}
+                  </button>
+
+                  <p style={{ color: '#444', fontSize: '11px', textAlign: 'center', marginTop: '14px', marginBottom: 0 }}>
+                    Requests are reviewed manually. Most songs added within 24-48 hours.
+                  </p>
+                </>
+              ) : (
+                /* Success state */
+                <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                  <div style={{ fontSize: '48px', marginBottom: '14px' }}>🎉</div>
+                  <h3 style={{ color: '#1DB954', margin: '0 0 8px', fontSize: '18px' }}>Request Received!</h3>
+                  <p style={{ color: '#888', fontSize: '14px', lineHeight: '1.6', margin: 0 }}>
+                    {requestMsg}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, zIndex: 40,
