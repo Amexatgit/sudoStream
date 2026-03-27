@@ -15,8 +15,13 @@ export default function Upload() {
 
   // Download via URL state
   const [downloadUrl, setDownloadUrl] = useState('');
-  const [downloadStatus, setDownloadStatus] = useState(''); // idle | downloading | success | error
+  const [downloadStatus, setDownloadStatus] = useState('');
   const [downloadResult, setDownloadResult] = useState(null);
+
+  // 🎵 SONG REQUESTS STATE
+  const [requests, setRequests] = useState([]);
+  const [requestsLoading, setRequestsLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('pending'); // pending | added | rejected
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -30,8 +35,42 @@ export default function Upload() {
     } else if (role !== 'admin') {
       router.push('/');
       alert("Only the Piracy King Amex can upload! 🏴‍☠️");
+    } else {
+      // Fetch requests on load
+      fetchRequests(token);
     }
   }, []);
+
+  const fetchRequests = async (token) => {
+    setRequestsLoading(true);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/requests`, {
+        headers: { 'auth-token': token }
+      });
+      const data = await res.json();
+      if (Array.isArray(data)) setRequests(data);
+    } catch (err) {
+      console.error('Failed to fetch requests:', err);
+    }
+    setRequestsLoading(false);
+  };
+
+  const updateRequestStatus = async (id, status) => {
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/requests/${id}`, {
+        method: 'PUT',
+        headers: { 'auth-token': token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setRequests(prev => prev.map(r => r._id === id ? updated : r));
+      }
+    } catch (err) {
+      console.error('Failed to update request:', err);
+    }
+  };
 
   const handleSongChange = (e) => {
     const selected = e.target.files[0];
@@ -292,7 +331,7 @@ export default function Upload() {
           </p>
         </div>
 
-        {/* 🎟️ NEW: VIP ACCESS CONTROL PANEL */}
+        {/* 🎟️ VIP ACCESS CONTROL PANEL */}
         <div style={styles.vipPanel}>
             <h3 style={styles.vipTitle}>🎟️ VIP Access Control</h3>
             <p style={styles.vipDesc}>Generate a single-use invite code for a friend.</p>
@@ -309,6 +348,123 @@ export default function Upload() {
                 </div>
             )}
         </div>
+
+        {/* 🎵 SONG REQUESTS PANEL */}
+        <div style={{ marginTop: '30px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+            <h3 style={{ margin: 0, color: '#fff', fontSize: '18px' }}>
+              🎵 Song Requests
+              {requests.filter(r => r.status === 'pending').length > 0 && (
+                <span style={{
+                  marginLeft: '8px', padding: '2px 8px', borderRadius: '12px',
+                  backgroundColor: '#f59e0b', color: '#000',
+                  fontSize: '11px', fontWeight: 'bold'
+                }}>
+                  {requests.filter(r => r.status === 'pending').length} new
+                </span>
+              )}
+            </h3>
+            <button
+              onClick={() => fetchRequests(localStorage.getItem('token'))}
+              style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: '18px' }}
+              title="Refresh"
+            >↻</button>
+          </div>
+
+          {/* Status tabs */}
+          <div style={{ display: 'flex', gap: '6px', marginBottom: '14px' }}>
+            {['pending', 'added', 'rejected'].map(tab => (
+              <button key={tab} onClick={() => setActiveTab(tab)} style={{
+                padding: '5px 14px', borderRadius: '20px', border: 'none', cursor: 'pointer',
+                fontSize: '12px', fontWeight: 'bold', textTransform: 'capitalize', transition: '0.15s',
+                backgroundColor: activeTab === tab
+                  ? tab === 'pending' ? '#f59e0b' : tab === 'added' ? '#1DB954' : '#ff4d4d'
+                  : 'rgba(255,255,255,0.06)',
+                color: activeTab === tab ? '#000' : '#888'
+              }}>
+                {tab} ({requests.filter(r => r.status === tab).length})
+              </button>
+            ))}
+          </div>
+
+          {/* Request list */}
+          <div style={{ maxHeight: '380px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {requestsLoading ? (
+              <p style={{ color: '#555', textAlign: 'center', padding: '20px 0' }}>Loading...</p>
+            ) : requests.filter(r => r.status === activeTab).length === 0 ? (
+              <p style={{ color: '#555', textAlign: 'center', padding: '20px 0', fontSize: '13px' }}>
+                No {activeTab} requests.
+              </p>
+            ) : (
+              requests.filter(r => r.status === activeTab).map(req => (
+                <div key={req._id} style={{
+                  padding: '12px 14px', borderRadius: '10px',
+                  backgroundColor: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  display: 'flex', alignItems: 'center', gap: '10px'
+                }}>
+                  {/* Type badge */}
+                  <span style={{
+                    padding: '2px 8px', borderRadius: '10px', fontSize: '10px',
+                    fontWeight: 'bold', textTransform: 'uppercase', flexShrink: 0,
+                    backgroundColor: req.type === 'song' ? 'rgba(29,185,84,0.15)' : 'rgba(99,102,241,0.15)',
+                    color: req.type === 'song' ? '#1DB954' : '#818cf8',
+                    border: `1px solid ${req.type === 'song' ? 'rgba(29,185,84,0.3)' : 'rgba(99,102,241,0.3)'}`
+                  }}>
+                    {req.type === 'song' ? '🎵' : '🎤'} {req.type}
+                  </span>
+
+                  {/* Name + requester */}
+                  <div style={{ flexGrow: 1, minWidth: 0 }}>
+                    <div style={{ color: '#fff', fontSize: '14px', fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {req.name}
+                    </div>
+                    <div style={{ color: '#555', fontSize: '11px', marginTop: '2px' }}>
+                      {new Date(req.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </div>
+                  </div>
+
+                  {/* Action buttons — only show on pending */}
+                  {req.status === 'pending' && (
+                    <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                      <button
+                        onClick={() => updateRequestStatus(req._id, 'added')}
+                        title="Mark as Added"
+                        style={{
+                          padding: '4px 10px', borderRadius: '8px', border: 'none',
+                          backgroundColor: 'rgba(29,185,84,0.15)', color: '#1DB954',
+                          cursor: 'pointer', fontSize: '12px', fontWeight: 'bold'
+                        }}
+                      >✓ Added</button>
+                      <button
+                        onClick={() => updateRequestStatus(req._id, 'rejected')}
+                        title="Reject"
+                        style={{
+                          padding: '4px 10px', borderRadius: '8px', border: 'none',
+                          backgroundColor: 'rgba(255,77,77,0.1)', color: '#ff6b6b',
+                          cursor: 'pointer', fontSize: '12px', fontWeight: 'bold'
+                        }}
+                      >✕</button>
+                    </div>
+                  )}
+
+                  {/* Status badge for non-pending */}
+                  {req.status !== 'pending' && (
+                    <span style={{
+                      padding: '3px 10px', borderRadius: '10px', fontSize: '11px',
+                      fontWeight: 'bold', flexShrink: 0,
+                      backgroundColor: req.status === 'added' ? 'rgba(29,185,84,0.15)' : 'rgba(255,77,77,0.1)',
+                      color: req.status === 'added' ? '#1DB954' : '#ff6b6b'
+                    }}>
+                      {req.status === 'added' ? '✓ Added' : '✕ Rejected'}
+                    </span>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
       </div>
     </div>
   );
